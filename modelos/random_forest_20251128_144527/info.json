@@ -1,0 +1,10 @@
+{
+  "nombre_modelo": "random_forest",
+  "fecha_entrenamiento": "20251128_144527",
+  "caracteristicas_usadas": [
+    "Posicion_Previo",
+    "Diferencia_Ciclica",
+    "Hora_Sorteo"
+  ],
+  "num_muestras": 3103
+}

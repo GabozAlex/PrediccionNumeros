@@ -1,0 +1,10 @@
+{
+  "accuracy_promedio": 0.2932795698924731,
+  "num_muestras": 3720,
+  "caracteristicas": [
+    "Posicion_Previo",
+    "Diferencia_Ciclica",
+    "Hora_Sorteo"
+  ],
+  "fecha_entrenamiento": "2025-11-28T14:55:58.624962"
+}

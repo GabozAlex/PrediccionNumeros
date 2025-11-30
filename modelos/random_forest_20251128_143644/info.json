@@ -1,0 +1,21 @@
+{
+  "nombre_modelo": "random_forest",
+  "fecha_entrenamiento": "20251128_143644",
+  "caracteristicas_usadas": [
+    "Posicion_Previo",
+    "Diferencia_Ciclica",
+    "Dia_Semana",
+    "Mes",
+    "Hora_Num",
+    "Frecuencia_Animal_10",
+    "Media_Movil_5",
+    "Std_Movil_5",
+    "Grupo_Ruleta",
+    "Grupo_Ruleta_Previo",
+    "Hora_Sorteo",
+    "Es_Fin_Semana",
+    "Repite_Animal",
+    "Mismo_Animal_3_Sorteos"
+  ],
+  "num_muestras": 3103
+}

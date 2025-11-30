@@ -1,0 +1,21 @@
+{
+  "accuracy_promedio": 0.2964872703834998,
+  "num_muestras": 3103,
+  "caracteristicas": [
+    "Posicion_Previo",
+    "Diferencia_Ciclica",
+    "Dia_Semana",
+    "Mes",
+    "Hora_Num",
+    "Frecuencia_Animal_10",
+    "Media_Movil_5",
+    "Std_Movil_5",
+    "Grupo_Ruleta",
+    "Grupo_Ruleta_Previo",
+    "Hora_Sorteo",
+    "Es_Fin_Semana",
+    "Repite_Animal",
+    "Mismo_Animal_3_Sorteos"
+  ],
+  "fecha_entrenamiento": "2025-11-28T14:36:44.756789"
+}
