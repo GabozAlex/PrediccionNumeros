@@ -1,0 +1,10 @@
+{
+  "nombre_modelo": "xgboost",
+  "fecha_entrenamiento": "20251205_100109",
+  "caracteristicas_usadas": [
+    "Posicion_Previo",
+    "Diferencia_Ciclica",
+    "Hora_Sorteo"
+  ],
+  "num_muestras": 3736
+}

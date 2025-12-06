@@ -231,3 +231,28 @@ ValueError: Invalid classes inferred from unique values of `y`.  Expected: [ 0  
 2025-11-30 12:22:52 - lotto_predictor - INFO - [prediccionNumero.py:2194] - Nuevo sorteo ingresado y características actualizadas
 2025-11-30 12:23:02 - lotto_predictor - INFO - [prediccionNumero.py:2194] - Nuevo sorteo ingresado y características actualizadas
 2025-11-30 12:23:56 - lotto_predictor - INFO - [prediccionNumero.py:2194] - Nuevo sorteo ingresado y características actualizadas
+2025-12-05 10:00:07 - lotto_predictor - INFO - [prediccionNumero.py:736] - Ejecutando Random Forest Optimizado
+2025-12-05 10:00:07 - lotto_predictor - INFO - [prediccionNumero.py:552] - Iniciando entrenamiento con optimización para rf
+2025-12-05 10:00:07 - lotto_predictor - INFO - [prediccionNumero.py:475] - Iniciando optimización de Random Forest...
+2025-12-05 10:00:37 - lotto_predictor - INFO - [prediccionNumero.py:502] - Mejores parámetros RF: {'classifier__n_estimators': 150, 'classifier__min_samples_split': 2, 'classifier__min_samples_leaf': 2, 'classifier__max_features': None, 'classifier__max_depth': 20}
+2025-12-05 10:00:37 - lotto_predictor - INFO - [prediccionNumero.py:503] - Mejor score RF: 0.3255
+2025-12-05 10:00:37 - lotto_predictor - INFO - [prediccionNumero.py:583] - Fold 1: Accuracy = 17.52%, Top-3 = 38.10%
+2025-12-05 10:00:37 - lotto_predictor - INFO - [prediccionNumero.py:583] - Fold 2: Accuracy = 18.49%, Top-3 = 41.16%
+2025-12-05 10:00:38 - lotto_predictor - INFO - [prediccionNumero.py:583] - Fold 3: Accuracy = 20.74%, Top-3 = 41.48%
+2025-12-05 10:00:38 - lotto_predictor - INFO - [prediccionNumero.py:583] - Fold 4: Accuracy = 17.20%, Top-3 = 40.03%
+2025-12-05 10:00:38 - lotto_predictor - INFO - [prediccionNumero.py:583] - Fold 5: Accuracy = 16.88%, Top-3 = 39.23%
+2025-12-05 10:00:38 - lotto_predictor - INFO - [prediccionNumero.py:595] - Entrenamiento completado: 18.17% accuracy, 40.00% top-3
+2025-12-05 10:00:38 - lotto_predictor - INFO - [prediccionNumero.py:636] - Modelo guardado en: modelos/random_forest_20251205_100038
+2025-12-05 10:00:43 - lotto_predictor - INFO - [prediccionNumero.py:774] - Ejecutando XGBoost Optimizado
+2025-12-05 10:00:43 - lotto_predictor - INFO - [prediccionNumero.py:552] - Iniciando entrenamiento con optimización para xgb
+2025-12-05 10:00:43 - lotto_predictor - INFO - [prediccionNumero.py:509] - Iniciando optimización de XGBoost...
+2025-12-05 10:01:07 - lotto_predictor - INFO - [prediccionNumero.py:543] - Mejores parámetros XGB: {'classifier__subsample': 0.9, 'classifier__n_estimators': 200, 'classifier__max_depth': 7, 'classifier__learning_rate': 0.2, 'classifier__gamma': 0, 'classifier__colsample_bytree': 0.8}
+2025-12-05 10:01:07 - lotto_predictor - INFO - [prediccionNumero.py:544] - Mejor score XGB: 0.2512
+2025-12-05 10:01:09 - lotto_predictor - INFO - [prediccionNumero.py:583] - Fold 1: Accuracy = 16.72%, Top-3 = 30.55%
+2025-12-05 10:01:09 - lotto_predictor - INFO - [prediccionNumero.py:583] - Fold 2: Accuracy = 17.20%, Top-3 = 31.19%
+2025-12-05 10:01:09 - lotto_predictor - INFO - [prediccionNumero.py:583] - Fold 3: Accuracy = 17.52%, Top-3 = 30.71%
+2025-12-05 10:01:09 - lotto_predictor - INFO - [prediccionNumero.py:583] - Fold 4: Accuracy = 16.40%, Top-3 = 30.06%
+2025-12-05 10:01:09 - lotto_predictor - INFO - [prediccionNumero.py:583] - Fold 5: Accuracy = 15.43%, Top-3 = 28.94%
+2025-12-05 10:01:09 - lotto_predictor - INFO - [prediccionNumero.py:595] - Entrenamiento completado: 16.66% accuracy, 30.29% top-3
+2025-12-05 10:01:09 - lotto_predictor - INFO - [prediccionNumero.py:636] - Modelo guardado en: modelos/xgboost_20251205_100109
+2025-12-05 10:01:20 - lotto_predictor - INFO - [prediccionNumero.py:651] - Modelo cargado desde: modelos\random_forest_20251205_100038

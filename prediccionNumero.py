@@ -845,8 +845,8 @@ def simular_estrategia(datos, top_10_map):
     HORAS_MANANA = ['08:00:00', '09:00:00', '10:00:00', '11:00:00', '12:00:00', '13:00:00']
     HORAS_TARDE = ['14:00:00', '15:00:00', '16:00:00', '17:00:00', '18:00:00', '19:00:00']
     
-    GASTO_TARDE = 3000.0
-    GANANCIA_POR_ACIERTO = 1500.0
+    GASTO_TARDE = 1200.0
+    GANANCIA_POR_ACIERTO = 600.0
 
     # Asegurar que tenemos la columna Fecha
     if 'Fecha' not in datos.columns:
@@ -1242,7 +1242,7 @@ def evaluacion_estrategia_solo_manana(datos, hora_corte='13:00:00'):
     
     top_10_map_manana = {}
     for hora_24h in frecuencia_manana['Hora'].unique():
-        top_10_lista = frecuencia_manana[frecuencia_manana['Hora'] == hora_24h].head(10)['Animal'].tolist()
+        top_10_lista = frecuencia_manana[frecuencia_manana['Hora'] == hora_24h].head(15)['Animal'].tolist()
         top_10_map_manana[hora_24h] = top_10_lista
     
     print(f"✅ Matriz de frecuencia generada para {len(top_10_map_manana)} horas de mañana")
@@ -1588,8 +1588,8 @@ def analisis_estadistico_avanzado(datos):
         HORAS_MANANA = ['08:00:00', '09:00:00', '10:00:00', '11:00:00', '12:00:00', '13:00:00']
         HORAS_TARDE = ['14:00:00', '15:00:00', '16:00:00', '17:00:00', '18:00:00', '19:00:00']
         
-        GASTO_TARDE = 3000.0
-        GANANCIA_POR_ACIERTO = 1500.0
+        GASTO_TARDE = 1200.0
+        GANANCIA_POR_ACIERTO = 600.0
 
         # Preparar datos
         datos['Fecha'] = pd.to_datetime(datos['Timestamp']).dt.date
@@ -2043,7 +2043,7 @@ def analizar_rachas_tempranas(datos, horas_evaluacion=3, umbral_aciertos=3):
     
     top_10_map = {}
     for hora_24h in frecuencia_completa['Hora'].unique():
-        top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(10)['Animal'].tolist()
+        top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(15)['Animal'].tolist()
         top_10_map[hora_24h] = top_10_lista
     
     resultados = []
@@ -2298,6 +2298,7 @@ def main_menu(datos, datosLotto):
 if __name__ == "__main__":
     datosLotto = "LottoActivo.xlsx"
     datos = None
+    
 
     print(f"🐍 Python version: {sys.version}")
     
