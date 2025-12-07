@@ -285,7 +285,6 @@ def preparar_datos_ml(datos):
     
     return X, Y, le_y, numeric_features, categorical_features, all_categories
 
-
 def preparar_datos_ml_completo(datos):
     """
     Preparación de datos SOLO con características básicas siempre disponibles
@@ -2296,7 +2295,7 @@ def main_menu(datos, datosLotto):
 # -----------------------------------------------------------
 
 if __name__ == "__main__":
-    datosLotto = "LottoActivo.xlsx"
+    datosLotto = "LottoActivoRD.xlsx"
     datos = None
     
 
