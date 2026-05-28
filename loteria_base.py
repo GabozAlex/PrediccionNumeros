@@ -111,30 +111,44 @@ class Loteria:
         df['Grupo_Ruleta'] = df['Numero'].apply(grupo_ruleta)
         df['Grupo_Ruleta_Previo'] = df['Grupo_Ruleta'].shift(1)
 
-        freq_hora = df.groupby('Solo_hora')['Animal'].value_counts(normalize=True).mul(100).reset_index()
-        freq_hora.columns = ['Solo_hora', 'Animal', 'Prob_Hist_Hora']
-        prob_hora_map = {}
-        for _, r in freq_hora.iterrows():
-            prob_hora_map[(r['Solo_hora'], r['Animal'])] = r['Prob_Hist_Hora']
-        df['Prob_Hist_Hora'] = df.apply(
-            lambda r: prob_hora_map.get((r['Solo_hora'], r['Animal']), 0), axis=1
-        )
-
         from collections import defaultdict
-        trans_count = defaultdict(lambda: defaultdict(int))
-        trans_total = defaultdict(int)
-        for i in range(1, len(df)):
-            prev = df.iloc[i-1]['Animal']
-            curr = df.iloc[i]['Animal']
-            trans_count[prev][curr] += 1
-            trans_total[prev] += 1
-        trans_prob = {}
-        for prev, followers in trans_count.items():
-            for curr, cnt in followers.items():
-                trans_prob[(prev, curr)] = (cnt / trans_total[prev]) * 100
-        df['Prob_Trans_Markov'] = df.apply(
-            lambda r: trans_prob.get((r['Animal_Previo'], r['Animal']), 0), axis=1
-        )
+        # Expanding window features (no future leakage)
+        hour_animal_cnt = defaultdict(lambda: defaultdict(int))
+        hour_total_cnt = defaultdict(int)
+        trans_cnt = defaultdict(lambda: defaultdict(int))
+        trans_total_cnt = defaultdict(int)
+        last_pos = {}
+        prob_hora_vals = []
+        prob_trans_vals = []
+        freq10_vals = []
+        distancia_vals = []
+        for idx in range(len(df)):
+            cur_animal = df.iloc[idx]['Animal']
+            cur_hour = df.iloc[idx]['Solo_hora']
+            # Update cumulative counts (include current draw)
+            hour_animal_cnt[cur_hour][cur_animal] += 1
+            hour_total_cnt[cur_hour] += 1
+            prob_hora_vals.append(hour_animal_cnt[cur_hour][cur_animal] / hour_total_cnt[cur_hour] * 100)
+            if idx > 0:
+                prev = df.iloc[idx-1]['Animal']
+                trans_cnt[prev][cur_animal] += 1
+                trans_total_cnt[prev] += 1
+                prob_trans_vals.append(trans_cnt[prev][cur_animal] / trans_total_cnt[prev] * 100)
+            else:
+                prob_trans_vals.append(0.0)
+            # Frequency of this animal in last 10 draws
+            start = max(0, idx - 9)
+            freq10_vals.append(int((df.iloc[start:idx+1]['Animal'] == cur_animal).sum()))
+            # Draws since this animal last appeared before current draw
+            if cur_animal in last_pos:
+                distancia_vals.append(idx - last_pos[cur_animal] - 1)
+            else:
+                distancia_vals.append(-1)
+            last_pos[cur_animal] = idx
+        df['Prob_Hist_Hora'] = prob_hora_vals
+        df['Prob_Trans_Markov'] = prob_trans_vals
+        df['Frecuencia_10'] = freq10_vals
+        df['Sorteos_Desde_Aparicion'] = distancia_vals
 
         print(f"Caracteristicas avanzadas anadidas: {len(df.columns)} features totales")
         return df
@@ -162,7 +176,8 @@ class Loteria:
             after = len(df_ml)
             if before != after:
                 print(f"Filtrados datos desde {min_date}: {before} -> {after} registros (quitados {before-after} historicos)")
-        numeric_features = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov']
+        numeric_features = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
+                            'Frecuencia_10', 'Sorteos_Desde_Aparicion']
         categorical_features = ['Hora_Sorteo']
         if 'Hora_Sorteo' not in df_ml.columns:
             df_ml['Hora_Sorteo'] = df_ml['Hora'].astype(str).str.strip().str.zfill(8)
@@ -191,7 +206,7 @@ class Loteria:
         if filas_antes != filas_despues:
             print(f"Eliminadas {filas_antes - filas_despues} filas con valores NaN")
         Y = Y.loc[X.index]
-        print(f"Datos ML preparados: {len(X)} muestras, {len(available_features)} caracteristicas BASICAS")
+        print(f"Datos ML preparados: {len(X)} muestras, {len(available_features)} caracteristicas")
         print(f"   Caracteristicas: {available_features}")
         return X, Y, le_y, numeric_features, categorical_features, available_features
 
@@ -232,7 +247,8 @@ class Loteria:
         if 'Hora_Sorteo' not in df_ml.columns:
             df_ml['Hora_Sorteo'] = df_ml['Hora'].astype(str).str.strip().str.zfill(8)
         horas_sorteo = sorted(df_ml['Hora_Sorteo'].unique())
-        numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov']
+        numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
+                              'Frecuencia_10', 'Sorteos_Desde_Aparicion']
         available_numeric = [f for f in numeric_candidates if f in df_ml.columns]
         all_features = available_numeric + ['Hora_Sorteo']
         print(f"\nGenerando Matriz de Prediccion TOP-{k} de la IA ({len(all_features)} features)...")
@@ -252,6 +268,18 @@ class Loteria:
         print(f"Matriz generada con {len(matriz_prediccion_ia)} horas")
         return matriz_prediccion_ia
 
+    def _top20_cv_scorer(self, estimator, X, y):
+        try:
+            y_proba = estimator.predict_proba(X)
+            top20 = np.argsort(y_proba, axis=1)[:, -20:]
+            correct = 0
+            for i, true_val in enumerate(y):
+                if true_val in top20[i]:
+                    correct += 1
+            return correct / len(y)
+        except Exception:
+            return 0.0
+
     def optimizar_hiperparametros_rf(self, X, Y, numeric_features, categorical_features):
         self.logger.info("Iniciando optimizacion de Random Forest...")
         param_dist = {
@@ -269,7 +297,7 @@ class Loteria:
             param_distributions=param_dist,
             n_iter=20,
             cv=tscv,
-            scoring='accuracy',
+            scoring=self._top20_cv_scorer,
             n_jobs=-1,
             random_state=42,
             verbose=1,
@@ -277,7 +305,7 @@ class Loteria:
         )
         random_search.fit(X, Y)
         self.logger.info(f"Mejores parametros RF: {random_search.best_params_}")
-        self.logger.info(f"Mejor score RF: {random_search.best_score_:.4f}")
+        self.logger.info(f"Mejor score RF (Top-20): {random_search.best_score_:.4f}")
         return random_search.best_estimator_
 
     def optimizar_hiperparametros_xgb(self, X, Y, numeric_features, categorical_features):
@@ -311,7 +339,7 @@ class Loteria:
             param_distributions=param_dist,
             n_iter=10,
             cv=tscv,
-            scoring='accuracy',
+            scoring=self._top20_cv_scorer,
             n_jobs=1,
             random_state=42,
             verbose=1,
@@ -319,7 +347,7 @@ class Loteria:
         )
         random_search.fit(X, Y)
         self.logger.info(f"Mejores parametros XGB: {random_search.best_params_}")
-        self.logger.info(f"Mejor score XGB: {random_search.best_score_:.4f}")
+        self.logger.info(f"Mejor score XGB (Top-20): {random_search.best_score_:.4f}")
         return random_search.best_estimator_
 
     def entrenar_modelo_con_optimizacion(self, X, Y, tipo_modelo, numeric_features, categorical_features):
@@ -335,7 +363,7 @@ class Loteria:
             raise ValueError("Tipo de modelo no soportado")
         tscv = TimeSeriesSplit(n_splits=5)
         accuracies = []
-        top3_accuracies = []
+        top20_accuracies = []
         for fold, (train_index, test_index) in enumerate(tscv.split(X)):
             X_train, X_test = X.iloc[train_index], X.iloc[test_index]
             Y_train, Y_test = Y.iloc[train_index], Y.iloc[test_index]
@@ -347,21 +375,21 @@ class Loteria:
             try:
                 accuracy = modelo_optimizado.score(X_test, Y_test)
                 y_proba = modelo_optimizado.predict_proba(X_test)
-                top3_acc = self.calcular_precision_top_k(Y_test.values, y_proba, k=3)
+                top20_acc = self.calcular_precision_top_k(Y_test.values, y_proba, k=20)
                 accuracies.append(accuracy)
-                top3_accuracies.append(top3_acc)
-                self.logger.info(f"Fold {fold+1}: Accuracy = {accuracy:.2%}, Top-3 = {top3_acc:.2%}")
+                top20_accuracies.append(top20_acc)
+                self.logger.info(f"Fold {fold+1}: Accuracy = {accuracy:.2%}, Top-20 = {top20_acc:.2%}")
             except Exception as e:
                 self.logger.warning(f"Fold {fold+1} evaluation failed: {e}")
         tiempo_entrenamiento = datetime.now() - start_time
         avg_accuracy = np.mean(accuracies)
-        avg_top3 = np.mean(top3_accuracies)
+        avg_top20 = np.mean(top20_accuracies)
         print(f"\nRESULTADOS {modelo_nombre}:")
         print(f"   Accuracy Promedio: {avg_accuracy:.2%}")
-        print(f"   Top-3 Accuracy: {avg_top3:.2%}")
+        print(f"   Top-20 Accuracy: {avg_top20:.2%}")
         print(f"   Tiempo entrenamiento: {tiempo_entrenamiento}")
         print(f"   Mejor Fold: {max(accuracies):.2%}")
-        self.logger.info(f"Entrenamiento completado: {avg_accuracy:.2%} accuracy, {avg_top3:.2%} top-3")
+        self.logger.info(f"Entrenamiento completado: {avg_accuracy:.2%} accuracy, {avg_top20:.2%} top-20")
         return modelo_optimizado
 
     def guardar_modelo(self, modelo, le_y, metricas, nombre_modelo):
@@ -621,7 +649,8 @@ class Loteria:
         prob_hora = {}
         for (hora, animal), prob in freq_hora.items():
             prob_hora.setdefault(hora, {})[animal] = prob
-        numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov']
+        numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
+                              'Frecuencia_10', 'Sorteos_Desde_Aparicion']
         available_numeric = [f for f in numeric_candidates if f in df.columns]
         animales_validos = list(self.animales_carac.keys())
         horas_del_dia = sorted(df['Hora'].unique())
@@ -750,7 +779,8 @@ class Loteria:
         prob_hora = {}
         for (hora, animal), prob in freq_hora.items():
             prob_hora.setdefault(hora, {})[animal] = prob
-        numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov']
+        numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
+                              'Frecuencia_10', 'Sorteos_Desde_Aparicion']
         available_numeric = [f for f in numeric_candidates if f in df.columns]
         animales_validos = list(self.animales_carac.keys())
         markov_scores = {}
@@ -831,7 +861,8 @@ class Loteria:
         df_eval = df.tail(n_ultimos + 5).reset_index(drop=True)
         if 'Hora_Sorteo' not in df_eval.columns:
             df_eval['Hora_Sorteo'] = df_eval['Hora'].astype(str).str.strip().str.zfill(8)
-        numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov']
+        numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
+                              'Frecuencia_10', 'Sorteos_Desde_Aparicion']
         available_numeric = [f for f in numeric_candidates if f in df_eval.columns]
         animales_validos = list(self.animales_carac.keys())
         trans_count = defaultdict(lambda: defaultdict(int))
