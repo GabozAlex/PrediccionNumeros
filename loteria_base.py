@@ -864,7 +864,7 @@ class Loteria:
         if len(df) < 10:
             print("Pocos datos")
             return
-        df_eval = df.tail(n_ultimos + 5).reset_index(drop=True)
+        df_eval = df.reset_index(drop=True)
         if 'Hora_Sorteo' not in df_eval.columns:
             df_eval['Hora_Sorteo'] = df_eval['Hora'].astype(str).str.strip().str.zfill(8)
         numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
@@ -1008,41 +1008,38 @@ class Loteria:
                 print(f"  XGBoost:                 {xgb_hits}/{xgb_count} = {xgb_hits/xgb_count*100:.1f}%")
             if rf_count > 0 and xgb_count > 0:
                 print(f"  RF + XGB:                {combined_rx_hits}/{total} = {combined_rx_hits/total*100:.1f}%")
-        # ranks = {'markov_all_rank': 'Markov', 'hourly_all_rank': 'Hist Hora', 'rf_all_rank': 'Random Forest', 'xgb_all_rank': 'XGBoost'}
-        # for key, nombre in ranks.items():
-        #     dist = {1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0, 10:0, '11-15':0, '16-20':0, '21-38':0}
-        #     count = 0
-        #     for r in resultados:
-        #         v = r.get(key)
-        #         if v is not None:
-        #             count += 1
-        #             if v <= 10:
-        #                 dist[v] += 1
-        #             elif v <= 15:
-        #                 dist['11-15'] += 1
-        #             elif v <= 20:
-        #                 dist['16-20'] += 1
-        #             else:
-        #                 dist['21-38'] += 1
-        #     if count > 0:
-        #         print(f"\n  DISTRIBUCION DE ACIERTOS - {nombre} ({count} evaluados):")
-        #         print(f"  {'Rango':<10} {'Aciertos':<10} {'%':<8} {'Acumulado':<10}")
-        #         print(f"  {'-'*40}")
-        #         acum = 0
-        #         for rng in [1,2,3,4,5,6,7,8,9,10,'11-15','16-20','21-38']:
-        #             v = dist[rng]
-        #             acum += v
-        #             pct = v/count*100
-        #             ac_pct = acum/count*100
-        #             if isinstance(rng, int):
-        #                 print(f"  #{rng:<8} {v:<10} {pct:<8.1f} {ac_pct:<10.1f}")
-        #             else:
-        #                 print(f"  {rng:<8} {v:<10} {pct:<8.1f} {ac_pct:<10.1f}")
-        #         print(f"  {'Top-5':<10} {sum(dist[i] for i in range(1,6)):<10} {sum(dist[i] for i in range(1,6))/count*100:<8.1f} -")
-        #         print(f"  {'Top-10':<10} {sum(dist[i] for i in range(1,11)):<10} {sum(dist[i] for i in range(1,11))/count*100:<8.1f} -")
-        #         print(f"  {'Top-15':<10} {sum(dist[i] for i in range(1,11))+dist['11-15']:<10} {(sum(dist[i] for i in range(1,11))+dist['11-15'])/count*100:<8.1f} -")
-        #         print(f"  {'Top-20':<10} {sum(dist[i] for i in range(1,11))+dist['11-15']+dist['16-20']:<10} {(sum(dist[i] for i in range(1,11))+dist['11-15']+dist['16-20'])/count*100:<8.1f} -")
-        print(f"\n{'='*90}\n")
+        HORA_ORDER = ['08:00:00','09:00:00','10:00:00','11:00:00','12:00:00','13:00:00',
+                      '14:00:00','15:00:00','16:00:00','17:00:00','18:00:00','19:00:00']
+        MODEL_RANK_MAP = {'Markov': 'markov_rank', 'Hora': 'hourly_rank', 'M+H': 'combined_mh_rank',
+                          'RF': 'rf_rank', 'XGB': 'xgb_rank', 'RF+XGB': 'combined_rf_xgb_rank'}
+        visible_models = ['Markov', 'Hora', 'M+H']
+        if rf_count > 0:
+            visible_models.append('RF')
+        if xgb_count > 0:
+            visible_models.append('XGB')
+        if rf_count > 0 and xgb_count > 0:
+            visible_models.append('RF+XGB')
+        def _fmt(pct):
+            return f"{pct:.1f}%" if pct > 50 else "——"
+        print(f"\n{'='*90}")
+        print(f"  ACIERTOS TOP-20 POR HORA")
+        print(f"{'='*90}")
+        header = f"{'Hora':<10}" + "".join(f"{m:<10}" for m in visible_models) + f"{'Sorteos':<8}"
+        print(header)
+        print(f"{'-'*len(header)}")
+        for h in HORA_ORDER:
+            sub = [r for r in resultados if r['hora'] == h]
+            if not sub:
+                continue
+            n = len(sub)
+            cells = [f"{h[:5]:<10}"]
+            for m in visible_models:
+                rank_key = MODEL_RANK_MAP[m]
+                hits = sum(1 for r in sub if r[rank_key] is not None)
+                cells.append(f"{_fmt(hits/n*100):<10}")
+            cells.append(f"{n:<8}")
+            print("".join(cells))
+        print(f"{'='*90}\n")
         return resultados
 
     def analizar_aciertos_por_dia_semana(self, datos):
@@ -1375,7 +1372,7 @@ class Loteria:
             print(f"  {i:<3} {animal:<14} {sc:<7.1f} {mp:<7.1f}% {hp:<7.1f}%")
         print(f"\n  (Mostrando Top-20 de {len(scored)} animales posibles)")
         print(f"\n  {'='*74}")
-        print(f"  PREDICCION POR CADA HORA DEL DIA (Top-5 combinado)")
+        print(f"  PREDICCION POR CADA HORA DEL DIA (Top-20 combinado)")
         print(f"  {'='*74}")
         horas = sorted(df['Solo_hora'].unique())
         for hora in horas:
@@ -1387,8 +1384,8 @@ class Loteria:
                 mp = trans_prob.get((ultimo_animal, animal), 0)
                 h_scored.append((mp + hp, animal))
             h_scored.sort(reverse=True)
-            top5 = ', '.join(f"{a} ({s:.0f})" for s,a in h_scored[:5])
-            print(f"  {hora:<10} -> {top5}")
+            top20 = ', '.join(f"{a} ({s:.0f})" for s,a in h_scored[:20])
+            print(f"  {hora:<10} -> {top20}")
 
     def validar_modelo_markov(self, datos, porcentaje_entrenamiento=0.8, top_k=5):
         print(f"\nValidacion Cruzada del Modelo de Markov (TOP-{top_k})")
