@@ -1,0 +1,177 @@
+import sys
+import time
+import datetime
+import logging
+from logging.handlers import RotatingFileHandler
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import os
+
+URL_BASE = "https://www.loteriadehoy.com/animalito/lottoactivordint/resultados/"
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
+
+def setup_logging():
+    if not os.path.exists('logs'):
+        os.makedirs('logs')
+    logger = logging.getLogger('lotto_rd_int_scraper')
+    logger.setLevel(logging.INFO)
+    if logger.handlers:
+        logger.handlers.clear()
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler = RotatingFileHandler(
+        'logs/lotto_rd_int_scraper.log', maxBytes=10*1024*1024, backupCount=5
+    )
+    file_handler.setFormatter(formatter)
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    return logger
+
+logger = setup_logging()
+
+HOUR_MAP_12_TO_24 = {
+    "08:30 AM": "08:30:00",
+    "09:30 AM": "09:30:00",
+    "10:30 AM": "10:30:00",
+    "11:30 AM": "11:30:00",
+    "12:30 PM": "12:30:00",
+    "01:30 PM": "13:30:00",
+    "02:30 PM": "14:30:00",
+    "03:30 PM": "15:30:00",
+    "04:30 PM": "16:30:00",
+    "05:30 PM": "17:30:00",
+    "06:30 PM": "18:30:00",
+    "07:30 PM": "19:30:00",
+}
+
+H5_PREFIXES = ["Lotto Activo Rd Int ", "Lotto Activo Int ", "Lotto Activo Int ( Lotto Internacional ) ", "Lotto Activo Int ("]
+
+def scrape_date(date_str):
+    records = []
+    try:
+        resp = requests.post(URL_BASE, data={"fecha": date_str}, headers=HEADERS, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.error(f"Error fetching {date_str}: {e}")
+        return records
+
+    soup = BeautifulSoup(resp.text, 'lxml')
+    items = soup.select('div.row.text-center.js-con > div')
+    if not items:
+        logger.warning(f"No results found for {date_str}")
+        return records
+
+    for item in items:
+        h4 = item.select_one('h4')
+        h5 = item.select_one('h5')
+        if not h4 or not h5:
+            continue
+        text = h4.get_text(strip=True)
+        time_text = h5.get_text(strip=True)
+        for prefix in H5_PREFIXES:
+            if time_text.startswith(prefix):
+                time_text = time_text[len(prefix):]
+                break
+        parts = text.split(' ', 1)
+        if len(parts) != 2:
+            continue
+        num_str, animal = parts
+        try:
+            numero = int(num_str)
+        except ValueError:
+            logger.warning(f"Could not parse number '{num_str}' on {date_str}")
+            continue
+
+        hour_24 = HOUR_MAP_12_TO_24.get(time_text)
+        if not hour_24:
+            logger.warning(f"Unknown time format '{time_text}' on {date_str}")
+            continue
+
+        records.append({
+            "Fecha": date_str,
+            "Hora": hour_24,
+            "Animal": animal.upper(),
+            "Numero": numero,
+        })
+
+    logger.info(f"{date_str}: {len(records)} records scraped")
+    return records
+
+
+def scrape_range(start_date, end_date, delay=1.5):
+    all_records = []
+    current = datetime.datetime.strptime(start_date, "%Y-%m-%d")
+    end = datetime.datetime.strptime(end_date, "%Y-%m-%d")
+    total_days = (end - current).days + 1
+    day_count = 0
+
+    while current <= end:
+        date_str = current.strftime("%Y-%m-%d")
+        records = scrape_date(date_str)
+        all_records.extend(records)
+        day_count += 1
+        if day_count % 10 == 0:
+            logger.info(f"Progress: {day_count}/{total_days} days")
+        time.sleep(delay)
+        current += datetime.timedelta(days=1)
+
+    df = pd.DataFrame(all_records)
+    logger.info(f"Total: {len(df)} records from {start_date} to {end_date}")
+    return df
+
+
+def save_to_excel(df, filename="LottoActivoRDInt.xlsx"):
+    existing = None
+    if os.path.exists(filename):
+        try:
+            existing = pd.read_excel(filename)
+            logger.info(f"Existing file: {len(existing)} records")
+        except Exception as e:
+            logger.warning(f"Could not read existing file: {e}")
+
+    if existing is not None and not existing.empty:
+        existing['Fecha'] = pd.to_datetime(existing['Fecha']).dt.strftime("%Y-%m-%d")
+        existing['Hora'] = existing['Hora'].astype(str).str.strip()
+        df['Fecha'] = pd.to_datetime(df['Fecha']).dt.strftime("%Y-%m-%d")
+        df['Hora'] = df['Hora'].astype(str).str.strip()
+        combined = pd.concat([existing, df], ignore_index=True)
+        combined = combined.drop_duplicates(subset=["Fecha", "Hora"], keep="last")
+        combined = combined.sort_values(["Fecha", "Hora"]).reset_index(drop=True)
+    else:
+        combined = df.copy()
+        combined = combined.sort_values(["Fecha", "Hora"]).reset_index(drop=True)
+
+    combined.to_excel(filename, index=False)
+    logger.info(f"Saved {len(combined)} records to {filename}")
+    return combined
+
+
+if __name__ == "__main__":
+    print("=== LOTTO ACTIVO RD INT WEB SCRAPER ===")
+    print("1. Scrape single date")
+    print("2. Scrape date range")
+    option = input("Select option: ").strip()
+
+    if option == "1":
+        date = input("Date (YYYY-MM-DD): ").strip()
+        records = scrape_date(date)
+        df = pd.DataFrame(records)
+        if not df.empty:
+            print(df.to_string(index=False))
+        else:
+            print("No records found.")
+    elif option == "2":
+        start = input("Start date (YYYY-MM-DD): ").strip()
+        end = input("End date (YYYY-MM-DD): ").strip()
+        df = scrape_range(start, end)
+        if not df.empty:
+            save_to_excel(df)
+        else:
+            print("No records found.")

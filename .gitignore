@@ -1,0 +1,18 @@
+# Archivos de datos (no subir a GitHub)
+LottoActivo.xlsx
+lotto_backup.json
+lotto.db
+
+# Carpetas generadas
+logs/
+modelos/
+__pycache__/
+*.pyc
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Entornos virtuales
+venv/
+env/
