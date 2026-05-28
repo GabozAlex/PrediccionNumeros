@@ -1,0 +1,26 @@
+
+--- 2026-05-28 ---
+Ranking = Prob_Markov + Prob_Historica_Hora
+Ultimo: CEBRA a las 07:00 PM
+
+  #   Animal         Score   Markov  +Hora  
+  1   LAPA           102.7   100.0%  2.7%    
+  2   ELEFANTE       98.7    95.8%   2.9%    
+  3   PERICO         98.0    95.8%   2.2%    
+  4   GALLO          90.7    87.5%   3.2%    
+  5   OSO            90.5    87.5%   3.0%    
+  6   DELFIN         90.0    87.5%   2.5%    
+  7   COCHINO        89.9    87.5%   2.4%    
+  8   AGUILA         86.8    83.3%   3.4%    
+  9   CARNERO        86.5    83.3%   3.1%    
+  10  VENADO         86.2    83.3%   2.9%    
+  11  TORO           85.9    83.3%   2.6%    
+  12  GALLINA        85.9    83.3%   2.6%    
+  13  CIEMPIES       85.9    83.3%   2.6%    
+  14  VACA           73.9    70.8%   3.1%    
+  15  ALACRAN        73.6    70.8%   2.8%    
+  16  CAMELLO        69.1    66.7%   2.4%    
+  17  RATON          68.9    66.7%   2.2%    
+  18  ZAMURO         65.4    62.5%   2.9%    
+  19  PALOMA         64.9    62.5%   2.4%    
+  20  CULEBRA        64.5    62.5%   2.0%    
