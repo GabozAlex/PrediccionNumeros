@@ -1,7 +1,9 @@
 # Archivos de datos (no subir a GitHub)
-LottoActivo.xlsx
+*.xlsx
+*.xls
 lotto_backup.json
 lotto.db
+*.txt
 
 # Carpetas generadas
 logs/
