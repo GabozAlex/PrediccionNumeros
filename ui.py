@@ -424,6 +424,129 @@ class LottoPredictorUI:
             d.iloc[-1, d.columns.get_loc('Solo_hora')] = solo_hora
             analizador.prediccion_markov_hora(d)
 
+    def _predecir_siguiente_ml_dialogo(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        rf, le_rf, xgb, le_xgb = self._get_modelos()
+        if not rf and not xgb:
+            messagebox.showwarning("Sin modelos", "No hay modelos entrenados. Entrena RF o XGB primero.")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ultimo = datos.iloc[-1]
+        animal_real = ultimo['Animal']
+        hora_real = ultimo['Hora']
+        try:
+            hora_12h = pd.to_datetime(hora_real, format='%H:%M:%S').strftime('%I:%M %p').lstrip('0')
+        except Exception:
+            hora_12h = hora_real
+
+        ventana = tk.Toplevel(self.root)
+        ventana.title("Predecir Siguiente - Modelos ML")
+        ventana.geometry("420x340")
+        ventana.transient(self.root)
+        ventana.grab_set()
+
+        modo = tk.StringVar(value="real")
+
+        ttk.Label(ventana, text="Modo de entrada:", font=("", 10, "bold")).pack(anchor=tk.W, padx=15, pady=(12, 5))
+
+        frame_real = ttk.LabelFrame(ventana, text="Modo A — Último dato real", padding=8)
+        frame_real.pack(fill=tk.X, padx=15, pady=4)
+        rb_real = ttk.Radiobutton(frame_real, text="", variable=modo, value="real")
+        rb_real.pack(anchor=tk.W)
+        ttk.Label(frame_real, text=f"Último resultado: {animal_real} a las {hora_12h}",
+                  font=("", 9)).pack(anchor=tk.W, padx=18)
+
+        frame_manual = ttk.LabelFrame(ventana, text="Modo B — Ingresar manualmente", padding=8)
+        frame_manual.pack(fill=tk.X, padx=15, pady=4)
+        rb_manual = ttk.Radiobutton(frame_manual, text="", variable=modo, value="manual")
+        rb_manual.pack(anchor=tk.W)
+        ttk.Label(frame_manual, text="Animal que acaba de salir:", font=("", 9)).pack(anchor=tk.W, padx=18, pady=(5, 2))
+        entry_animal = ttk.Entry(frame_manual, width=25, font=("", 10))
+        entry_animal.pack(anchor=tk.W, padx=18, pady=2)
+        ttk.Label(frame_manual, text="Hora del sorteo (HH:MM AM/PM):", font=("", 9)).pack(anchor=tk.W, padx=18, pady=(5, 2))
+        horas_opciones = ["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM",
+                          "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM",
+                          "04:00 PM", "05:00 PM", "06:00 PM", "07:00 PM"]
+        combo_hora = ttk.Combobox(frame_manual, values=horas_opciones, state="readonly", width=15, font=("", 10))
+        combo_hora.pack(anchor=tk.W, padx=18, pady=2)
+        combo_hora.set(horas_opciones[-1])
+
+        def _toggle_modo(*_):
+            state = tk.NORMAL if modo.get() == "manual" else tk.DISABLED
+            entry_animal.config(state=state)
+            combo_hora.config(state=state)
+        modo.trace_add("write", _toggle_modo)
+        _toggle_modo()
+
+        def ejecutar():
+            animal = None
+            hora_24h = None
+            solo_hora = None
+            if modo.get() == "manual":
+                animal = entry_animal.get().strip().upper()
+                if not animal or animal not in analizador.animales_carac:
+                    animales_ok = ", ".join(sorted(analizador.animales_carac.keys()))
+                    messagebox.showwarning("Error", f"Animal invalido. Validos: {animales_ok}")
+                    return
+                hora_str = combo_hora.get().strip()
+                if not hora_str:
+                    messagebox.showwarning("Error", "Selecciona una hora")
+                    return
+                try:
+                    dt_hora = pd.to_datetime(hora_str, format='%I:%M %p')
+                    hora_24h = dt_hora.strftime('%H:%M:%S')
+                    solo_hora = dt_hora.strftime('%I:%M %p')
+                except Exception:
+                    messagebox.showwarning("Error", "Hora invalida")
+                    return
+            ventana.destroy()
+            hilo = threading.Thread(
+                target=self._predecir_siguiente_ml_task,
+                args=(animal, hora_24h, solo_hora), daemon=True
+            )
+            hilo.start()
+
+        frame_btn = ttk.Frame(ventana)
+        frame_btn.pack(pady=15)
+        ttk.Button(frame_btn, text="Predecir", command=ejecutar).pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame_btn, text="Cancelar", command=ventana.destroy).pack(side=tk.LEFT, padx=5)
+
+    def _predecir_siguiente_ml_task(self, animal=None, hora_24h=None, solo_hora=None):
+        panel = self._paneles.get("ml_predecir")
+        if panel is None:
+            return
+        redir = RedirectText(panel)
+        self.root.after(0, lambda: panel.delete("1.0", tk.END))
+        with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
+            datos = self._get_datos()
+            if datos is None or datos.empty:
+                print("ERROR: Sin datos")
+                return
+            analizador = self._get_analizador()
+            if not analizador:
+                return
+            rf, le_rf, xgb, le_xgb = self._get_modelos()
+            d = datos.copy()
+            if animal is not None:
+                d.iloc[-1, d.columns.get_loc('Animal')] = animal
+                d.iloc[-1, d.columns.get_loc('Numero')] = 0
+                d.iloc[-1, d.columns.get_loc('Hora')] = hora_24h
+                d.iloc[-1, d.columns.get_loc('Solo_hora')] = solo_hora
+                print(f"[Modo B] Estado simulado: {animal} a las {solo_hora}")
+            else:
+                try:
+                    h12 = pd.to_datetime(d.iloc[-1]['Hora'], format='%H:%M:%S').strftime('%I:%M %p').lstrip('0')
+                except Exception:
+                    h12 = d.iloc[-1]['Hora']
+                print(f"[Modo A] Ultimo resultado real: {d.iloc[-1]['Animal']} a las {h12}")
+            d2 = analizador.agregar_caracteristicas_avanzadas(d)
+            analizador.prediccion_completa_hoy(d2, rf, le_rf, xgb, le_xgb)
+
     # ================ TAB: MODELOS ML ================
 
     def _tab_crear_modelos(self):
@@ -528,11 +651,7 @@ class LottoPredictorUI:
             ejecutar_en_panel(tarea)
 
         elif accion == "ml_predecir":
-            rf, le_rf, xgb, le_xgb = self._get_modelos()
-            def tarea():
-                d2 = analizador.agregar_caracteristicas_avanzadas(d.copy())
-                analizador.prediccion_completa_hoy(d2, rf, le_rf, xgb, le_xgb)
-            ejecutar_en_panel(tarea)
+            self._predecir_siguiente_ml_dialogo()
 
     def _entrenar_rf(self, analizador, mod, d):
         analizador.random_forest_optimizado(d)
