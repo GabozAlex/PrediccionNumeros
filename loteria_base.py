@@ -147,7 +147,7 @@ class Loteria:
         df['Grupo_Ruleta'] = df['Numero'].apply(grupo_ruleta)
         df['Grupo_Ruleta_Previo'] = df['Grupo_Ruleta'].shift(1)
 
-        from collections import defaultdict
+        from collections import defaultdict, deque
         # Expanding window features (no future leakage)
         hour_animal_cnt = defaultdict(lambda: defaultdict(int))
         hour_total_cnt = defaultdict(int)
@@ -158,6 +158,7 @@ class Loteria:
         prob_trans_vals = []
         freq10_vals = []
         distancia_vals = []
+        recent_window = deque(maxlen=10)
         for idx in range(len(df)):
             cur_animal = df.iloc[idx]['Animal']
             cur_hour = df.iloc[idx]['Solo_hora']
@@ -174,8 +175,8 @@ class Loteria:
             else:
                 prob_trans_vals.append(0.0)
             # Frequency of this animal in last 10 draws
-            start = max(0, idx - 9)
-            freq10_vals.append(int((df.iloc[start:idx+1]['Animal'] == cur_animal).sum()))
+            recent_window.append(cur_animal)
+            freq10_vals.append(recent_window.count(cur_animal))
             # Draws since this animal last appeared before current draw
             if cur_animal in last_pos:
                 distancia_vals.append(idx - last_pos[cur_animal] - 1)
@@ -859,12 +860,13 @@ class Loteria:
         print(f"\n  Jugada recomendada: Top-3 con mayor consenso")
         return None
 
-    def evaluar_predicciones_historicas(self, datos, modelo_rf=None, le_rf=None, modelo_xgb=None, le_xgb=None, n_ultimos=50):
+    def evaluar_predicciones_historicas(self, datos, modelo_rf=None, le_rf=None, modelo_xgb=None, le_xgb=None, n_ultimos=500):
         df = datos.copy()
         if len(df) < 10:
             print("Pocos datos")
             return
-        df_eval = df.reset_index(drop=True)
+        n_eval = min(n_ultimos, len(df) - 5)
+        df_eval = df.tail(n_eval).reset_index(drop=True)
         if 'Hora_Sorteo' not in df_eval.columns:
             df_eval['Hora_Sorteo'] = df_eval['Hora'].astype(str).str.strip().str.zfill(8)
         numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',

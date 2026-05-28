@@ -524,7 +524,7 @@ class LottoPredictorUI:
             rf, le_rf, xgb, le_xgb = self._get_modelos()
             def tarea():
                 d2 = analizador.agregar_caracteristicas_avanzadas(d.copy())
-                analizador.evaluar_predicciones_historicas(d2, rf, le_rf, xgb, le_xgb, n_ultimos=50)
+                analizador.evaluar_predicciones_historicas(d2, rf, le_rf, xgb, le_xgb)
             ejecutar_en_panel(tarea)
 
         elif accion == "ml_predecir":
