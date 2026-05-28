@@ -40,6 +40,42 @@ class Loteria:
                 result[a] = grupo
         return result
 
+    def _transiciones_markov(self, df):
+        from collections import defaultdict
+        trans_count = defaultdict(lambda: defaultdict(int))
+        trans_total = defaultdict(int)
+        for i in range(1, len(df)):
+            if df.iloc[i-1]['Fecha'] == df.iloc[i]['Fecha']:
+                prev = df.iloc[i-1]['Animal']
+                cur = df.iloc[i]['Animal']
+                trans_count[prev][cur] += 1
+                trans_total[prev] += 1
+        trans_prob = {}
+        for prev, followers in trans_count.items():
+            for cur, cnt in followers.items():
+                trans_prob[(prev, cur)] = cnt / trans_total[prev] * 100
+        return trans_prob, trans_total
+
+    def _frecuencias_hora(self, df, col_hora='Hora'):
+        freq = df.groupby(col_hora)['Animal'].value_counts(normalize=True).mul(100)
+        result = {}
+        for (hora, animal), prob in freq.items():
+            result.setdefault(hora, {})[animal] = prob
+        return result
+
+    def _mh_ranking(self, markov_scores, hourly_scores, animales_validos):
+        max_m = max(markov_scores.values()) if markov_scores else 1
+        combined = {}
+        for a in animales_validos:
+            mp = markov_scores.get(a, 0) / max_m * 100
+            hp = hourly_scores.get(a, 0)
+            combined[a] = mp + hp
+        top20 = sorted(combined, key=combined.get, reverse=True)[:20]
+        rankings = {}
+        for i, a in enumerate(top20, 1):
+            rankings[a] = (i, combined[a])
+        return rankings, combined
+
     def verificar_diccionario_animales(self):
         print("\nVERIFICANDO LISTA DE ANIMALES...")
         total_animales = len(self.animales_carac)
@@ -131,9 +167,10 @@ class Loteria:
             prob_hora_vals.append(hour_animal_cnt[cur_hour][cur_animal] / hour_total_cnt[cur_hour] * 100)
             if idx > 0:
                 prev = df.iloc[idx-1]['Animal']
-                trans_cnt[prev][cur_animal] += 1
-                trans_total_cnt[prev] += 1
-                prob_trans_vals.append(trans_cnt[prev][cur_animal] / trans_total_cnt[prev] * 100)
+                if df.iloc[idx-1]['Fecha'] == df.iloc[idx]['Fecha']:
+                    trans_cnt[prev][cur_animal] += 1
+                    trans_total_cnt[prev] += 1
+                prob_trans_vals.append((trans_cnt[prev][cur_animal] / trans_total_cnt[prev] * 100) if trans_total_cnt[prev] > 0 else 0.0)
             else:
                 prob_trans_vals.append(0.0)
             # Frequency of this animal in last 10 draws
@@ -628,27 +665,12 @@ class Loteria:
             print()
 
     def prediccion_hoy_ensemble(self, datos, modelo=None, le_y=None, k=20):
-        from collections import defaultdict
         df = datos.copy()
         ultimo = df.iloc[-1]
         ultimo_animal = ultimo['Animal']
         ultimo_numero = int(ultimo['Numero'])
-        trans_count = defaultdict(lambda: defaultdict(int))
-        trans_total = defaultdict(int)
-        for i in range(1, len(df)):
-            if df.iloc[i-1]['Fecha'] == df.iloc[i]['Fecha']:
-                prev = df.iloc[i-1]['Animal']
-                curr = df.iloc[i]['Animal']
-                trans_count[prev][curr] += 1
-                trans_total[prev] += 1
-        trans_prob = {}
-        for prev in trans_count:
-            for curr, cnt in trans_count[prev].items():
-                trans_prob[(prev, curr)] = cnt / trans_total[prev] * 100
-        freq_hora = df.groupby('Hora')['Animal'].value_counts(normalize=True).mul(100)
-        prob_hora = {}
-        for (hora, animal), prob in freq_hora.items():
-            prob_hora.setdefault(hora, {})[animal] = prob
+        trans_prob, trans_total = self._transiciones_markov(df)
+        prob_hora = self._frecuencias_hora(df, 'Hora')
         numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
                               'Frecuencia_10', 'Sorteos_Desde_Aparicion']
         available_numeric = [f for f in numeric_candidates if f in df.columns]
@@ -738,7 +760,6 @@ class Loteria:
         return pred_matrix
 
     def prediccion_completa_hoy(self, datos, modelo_rf=None, le_rf=None, modelo_xgb=None, le_xgb=None):
-        from collections import defaultdict
         df = datos.copy()
         if len(df) < 5:
             print("Pocos datos")
@@ -763,22 +784,8 @@ class Loteria:
         print(f"  PREDICCION PARA LA SIGUIENTE HORA: {target_12h}")
         print(f"  Ultimo resultado: {ultimo['Animal']} (#{int(ultimo['Numero']):02d}) a las {ultimo['Hora']}")
         print(f"{'='*94}")
-        trans_count = defaultdict(lambda: defaultdict(int))
-        trans_total = defaultdict(int)
-        for i in range(1, len(df)):
-            if df.iloc[i-1]['Fecha'] == df.iloc[i]['Fecha']:
-                prev = df.iloc[i-1]['Animal']
-                curr = df.iloc[i]['Animal']
-                trans_count[prev][curr] += 1
-                trans_total[prev] += 1
-        trans_prob = {}
-        for prev in trans_count:
-            for curr, cnt in trans_count[prev].items():
-                trans_prob[(prev, curr)] = cnt / trans_total[prev] * 100
-        freq_hora = df.groupby('Hora')['Animal'].value_counts(normalize=True).mul(100)
-        prob_hora = {}
-        for (hora, animal), prob in freq_hora.items():
-            prob_hora.setdefault(hora, {})[animal] = prob
+        trans_prob, trans_total = self._transiciones_markov(df)
+        prob_hora = self._frecuencias_hora(df, 'Hora')
         numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
                               'Frecuencia_10', 'Sorteos_Desde_Aparicion']
         available_numeric = [f for f in numeric_candidates if f in df.columns]
@@ -853,7 +860,6 @@ class Loteria:
         return None
 
     def evaluar_predicciones_historicas(self, datos, modelo_rf=None, le_rf=None, modelo_xgb=None, le_xgb=None, n_ultimos=50):
-        from collections import defaultdict
         df = datos.copy()
         if len(df) < 10:
             print("Pocos datos")
@@ -865,19 +871,8 @@ class Loteria:
                               'Frecuencia_10', 'Sorteos_Desde_Aparicion']
         available_numeric = [f for f in numeric_candidates if f in df_eval.columns]
         animales_validos = list(self.animales_carac.keys())
-        trans_count = defaultdict(lambda: defaultdict(int))
-        trans_total = defaultdict(int)
-        for i in range(1, len(df)):
-            if df.iloc[i-1]['Fecha'] == df.iloc[i]['Fecha']:
-                prev = df.iloc[i-1]['Animal']
-                curr = df.iloc[i]['Animal']
-                trans_count[prev][curr] += 1
-                trans_total[prev] += 1
-        trans_prob = {}
-        for prev in trans_count:
-            for curr, cnt in trans_count[prev].items():
-                trans_prob[(prev, curr)] = cnt / trans_total[prev] * 100
-        freq_hora = df.groupby('Hora')['Animal'].value_counts(normalize=True).mul(100)
+        trans_prob, trans_total = self._transiciones_markov(df)
+        freq_hora = self._frecuencias_hora(df, 'Hora')
         resultados = []
         rf_count = 0
         xgb_count = 0
@@ -903,7 +898,7 @@ class Loteria:
             markov_full = sorted(markov_scores, key=markov_scores.get, reverse=True)
             markov_all_rank = markov_full.index(animal_real) + 1 if animal_real in markov_full else None
             hourly_scores = {}
-            if hora_real in freq_hora.index:
+            if hora_real in freq_hora:
                 for a, p in freq_hora[hora_real].items():
                     hourly_scores[a] = p
             hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:20]
@@ -1051,25 +1046,13 @@ class Loteria:
         return resultados
 
     def analizar_aciertos_por_dia_semana(self, datos):
-        from collections import defaultdict
         df = datos.copy()
         if len(df) < 10:
             print("Pocos datos")
             return
         animales_validos = list(self.animales_carac.keys())
-        trans_count = defaultdict(lambda: defaultdict(int))
-        trans_total = defaultdict(int)
-        for i in range(1, len(df)):
-            if df.iloc[i-1]['Fecha'] == df.iloc[i]['Fecha']:
-                prev = df.iloc[i-1]['Animal']
-                curr = df.iloc[i]['Animal']
-                trans_count[prev][curr] += 1
-                trans_total[prev] += 1
-        trans_prob = {}
-        for prev in trans_count:
-            for curr, cnt in trans_count[prev].items():
-                trans_prob[(prev, curr)] = cnt / trans_total[prev] * 100
-        freq_hora = df.groupby('Hora')['Animal'].value_counts(normalize=True).mul(100)
+        trans_prob, trans_total = self._transiciones_markov(df)
+        freq_hora = self._frecuencias_hora(df, 'Hora')
         df['Dia_Semana'] = pd.to_datetime(df['Fecha'].astype(str)).dt.day_name()
         DIA_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         DIA_NOMBRE = {'Monday':'Lunes','Tuesday':'Martes','Wednesday':'Miercoles','Thursday':'Jueves','Friday':'Viernes','Saturday':'Sabado','Sunday':'Domingo'}
@@ -1092,7 +1075,7 @@ class Loteria:
             markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:20]
             markov_hit = animal_real in markov_top
             hourly_scores = {}
-            if hora_real in freq_hora.index:
+            if hora_real in freq_hora:
                 for a, p in freq_hora[hora_real].items():
                     hourly_scores[a] = p
             hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:20]
@@ -1141,25 +1124,13 @@ class Loteria:
         return df_res
 
     def analizar_aciertos_por_hora(self, datos):
-        from collections import defaultdict
         df = datos.copy()
         if len(df) < 10:
             print("Pocos datos")
             return
         animales_validos = list(self.animales_carac.keys())
-        trans_count = defaultdict(lambda: defaultdict(int))
-        trans_total = defaultdict(int)
-        for i in range(1, len(df)):
-            if df.iloc[i-1]['Fecha'] == df.iloc[i]['Fecha']:
-                prev = df.iloc[i-1]['Animal']
-                curr = df.iloc[i]['Animal']
-                trans_count[prev][curr] += 1
-                trans_total[prev] += 1
-        trans_prob = {}
-        for prev in trans_count:
-            for curr, cnt in trans_count[prev].items():
-                trans_prob[(prev, curr)] = cnt / trans_total[prev] * 100
-        freq_hora = df.groupby('Hora')['Animal'].value_counts(normalize=True).mul(100)
+        trans_prob, trans_total = self._transiciones_markov(df)
+        freq_hora = self._frecuencias_hora(df, 'Hora')
         resultados = []
         for i in range(1, len(df)):
             if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']:
@@ -1178,7 +1149,7 @@ class Loteria:
             markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:20]
             markov_hit = animal_real in markov_top
             hourly_scores = {}
-            if hora_real in freq_hora.index:
+            if hora_real in freq_hora:
                 for a, p in freq_hora[hora_real].items():
                     hourly_scores[a] = p
             hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:20]
@@ -1377,32 +1348,26 @@ class Loteria:
             print(top_10[['Animal', 'Probabilidad']].to_string(index=False, float_format="%.2f%%"))
 
     def prediccion_markov_hora(self, datos):
-        from collections import defaultdict
         df = datos.copy()
         print("\n" + "=" * 74)
         print("  PREDICCION COMBINADA MARKOV + HORA")
         print("=" * 74)
         print("  Ranking = Prob_Markov + Prob_Historica_Hora")
         print("  Precision estimada: ~44% Top-10 (vs 43% Markov solo)\n")
-        trans = defaultdict(lambda: defaultdict(int))
-        for i in range(1, len(df)):
-            if df.iloc[i-1]['Fecha'] == df.iloc[i]['Fecha']:
-                trans[df.iloc[i-1]['Animal']][df.iloc[i]['Animal']] += 1
-        hora_freq = df.groupby('Solo_hora')['Animal'].value_counts(normalize=True)
+        trans_prob, trans_total = self._transiciones_markov(df)
+        hora_freq = self._frecuencias_hora(df, 'Solo_hora')
         ultimo = df.iloc[-1]
         ultimo_animal = ultimo['Animal']
         ultimo_hora = ultimo['Solo_hora']
         print(f"  Ultimo: {ultimo_animal} a las {ultimo_hora}\n")
-        if ultimo_animal not in trans:
+        if ultimo_animal not in trans_total:
             print("  Sin datos de transicion para este animal.")
             return
-        items = sorted(trans[ultimo_animal].items(), key=lambda x: x[1], reverse=True)
-        max_c = items[0][1]
         scored = []
-        for animal, cnt in trans[ultimo_animal].items():
-            mp = cnt / max_c * 100
-            hp = hora_freq.get((ultimo_hora, animal), 0) * 100
-            scored.append((mp + hp, mp, hp, animal))
+        for (prev, animal), mp in trans_prob.items():
+            if prev == ultimo_animal:
+                hp = hora_freq.get(ultimo_hora, {}).get(animal, 0)
+                scored.append((mp + hp, mp, hp, animal))
         scored.sort(reverse=True)
         print(f"  {'#':<3} {'Animal':<14} {'Score':<7} {'Markov':<7} {'+Hora':<7}")
         print(f"  {'-'*42}")
@@ -1418,8 +1383,8 @@ class Loteria:
                 continue
             h_scored = []
             for animal in [a for _,_,_,a in scored[:20]]:
-                hp = hora_freq.get((hora, animal), 0) * 100
-                mp = next((c/max_c*100 for a,c in items if a==animal), 0)
+                hp = hora_freq.get(hora, {}).get(animal, 0)
+                mp = trans_prob.get((ultimo_animal, animal), 0)
                 h_scored.append((mp + hp, animal))
             h_scored.sort(reverse=True)
             top5 = ', '.join(f"{a} ({s:.0f})" for s,a in h_scored[:5])
