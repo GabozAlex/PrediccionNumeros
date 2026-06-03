@@ -70,7 +70,7 @@ class Loteria:
             mp = markov_scores.get(a, 0) / max_m * 100
             hp = hourly_scores.get(a, 0)
             combined[a] = mp + hp
-        top20 = sorted(combined, key=combined.get, reverse=True)[:20]
+        top20 = sorted(combined, key=combined.get, reverse=True)[:25]
         rankings = {}
         for i, a in enumerate(top20, 1):
             rankings[a] = (i, combined[a])
@@ -280,7 +280,7 @@ class Loteria:
             print(f"Precision de la validacion temporal: {accuracy:.2%}")
         return pipeline
 
-    def predecir_top_k_por_hora(self, pipeline, le_y, df_ml, k=20):
+    def predecir_top_k_por_hora(self, pipeline, le_y, df_ml, k=25):
         matriz_prediccion_ia = {}
         if 'Hora_Sorteo' not in df_ml.columns:
             df_ml['Hora_Sorteo'] = df_ml['Hora'].astype(str).str.strip().str.zfill(8)
@@ -306,10 +306,10 @@ class Loteria:
         print(f"Matriz generada con {len(matriz_prediccion_ia)} horas")
         return matriz_prediccion_ia
 
-    def _top20_cv_scorer(self, estimator, X, y):
+    def _top25_cv_scorer(self, estimator, X, y):
         try:
             y_proba = estimator.predict_proba(X)
-            top20 = np.argsort(y_proba, axis=1)[:, -20:]
+            top20 = np.argsort(y_proba, axis=1)[:, -25:]
             correct = 0
             for i, true_val in enumerate(y):
                 if true_val in top20[i]:
@@ -335,7 +335,7 @@ class Loteria:
             param_distributions=param_dist,
             n_iter=20,
             cv=tscv,
-            scoring=self._top20_cv_scorer,
+            scoring=self._top25_cv_scorer,
             n_jobs=-1,
             random_state=42,
             verbose=1,
@@ -343,7 +343,7 @@ class Loteria:
         )
         random_search.fit(X, Y)
         self.logger.info(f"Mejores parametros RF: {random_search.best_params_}")
-        self.logger.info(f"Mejor score RF (Top-20): {random_search.best_score_:.4f}")
+        self.logger.info(f"Mejor score RF (Top-25): {random_search.best_score_:.4f}")
         return random_search.best_estimator_
 
     def optimizar_hiperparametros_xgb(self, X, Y, numeric_features, categorical_features):
@@ -377,7 +377,7 @@ class Loteria:
             param_distributions=param_dist,
             n_iter=10,
             cv=tscv,
-            scoring=self._top20_cv_scorer,
+            scoring=self._top25_cv_scorer,
             n_jobs=1,
             random_state=42,
             verbose=1,
@@ -385,7 +385,7 @@ class Loteria:
         )
         random_search.fit(X, Y)
         self.logger.info(f"Mejores parametros XGB: {random_search.best_params_}")
-        self.logger.info(f"Mejor score XGB (Top-20): {random_search.best_score_:.4f}")
+        self.logger.info(f"Mejor score XGB (Top-25): {random_search.best_score_:.4f}")
         return random_search.best_estimator_
 
     def entrenar_modelo_con_optimizacion(self, X, Y, tipo_modelo, numeric_features, categorical_features):
@@ -401,7 +401,7 @@ class Loteria:
             raise ValueError("Tipo de modelo no soportado")
         tscv = TimeSeriesSplit(n_splits=5)
         accuracies = []
-        top20_accuracies = []
+        top25_accuracies = []
         for fold, (train_index, test_index) in enumerate(tscv.split(X)):
             X_train, X_test = X.iloc[train_index], X.iloc[test_index]
             Y_train, Y_test = Y.iloc[train_index], Y.iloc[test_index]
@@ -413,21 +413,21 @@ class Loteria:
             try:
                 accuracy = modelo_optimizado.score(X_test, Y_test)
                 y_proba = modelo_optimizado.predict_proba(X_test)
-                top20_acc = self.calcular_precision_top_k(Y_test.values, y_proba, k=20)
+                top25_acc = self.calcular_precision_top_k(Y_test.values, y_proba, k=25)
                 accuracies.append(accuracy)
-                top20_accuracies.append(top20_acc)
-                self.logger.info(f"Fold {fold+1}: Accuracy = {accuracy:.2%}, Top-20 = {top20_acc:.2%}")
+                top25_accuracies.append(top25_acc)
+                self.logger.info(f"Fold {fold+1}: Accuracy = {accuracy:.2%}, Top-25 = {top25_acc:.2%}")
             except Exception as e:
                 self.logger.warning(f"Fold {fold+1} evaluation failed: {e}")
         tiempo_entrenamiento = datetime.now() - start_time
         avg_accuracy = np.mean(accuracies)
-        avg_top20 = np.mean(top20_accuracies)
+        avg_top25 = np.mean(top25_accuracies)
         print(f"\nRESULTADOS {modelo_nombre}:")
         print(f"   Accuracy Promedio: {avg_accuracy:.2%}")
-        print(f"   Top-20 Accuracy: {avg_top20:.2%}")
+        print(f"   Top-25 Accuracy: {avg_top25:.2%}")
         print(f"   Tiempo entrenamiento: {tiempo_entrenamiento}")
         print(f"   Mejor Fold: {max(accuracies):.2%}")
-        self.logger.info(f"Entrenamiento completado: {avg_accuracy:.2%} accuracy, {avg_top20:.2%} top-20")
+        self.logger.info(f"Entrenamiento completado: {avg_accuracy:.2%} accuracy, {avg_top25:.2%} top-25")
         return modelo_optimizado
 
     def guardar_modelo(self, modelo, le_y, metricas, nombre_modelo):
@@ -512,7 +512,7 @@ class Loteria:
                 X, Y, 'rf', numeric_features, categorical_features
             )
             matriz_prediccion = self.predecir_top_k_por_hora(
-                modelo_optimizado, le_y, datos_con_features.copy(), k=20
+                modelo_optimizado, le_y, datos_con_features.copy(), k=25
             )
             metricas = {
                 'accuracy_promedio': np.mean([modelo_optimizado.score(X, Y)]),
@@ -541,7 +541,7 @@ class Loteria:
                 X, Y, 'xgb', numeric_features, categorical_features
             )
             matriz_prediccion = self.predecir_top_k_por_hora(
-                modelo_optimizado, le_y, datos_con_features.copy(), k=20
+                modelo_optimizado, le_y, datos_con_features.copy(), k=25
             )
             metricas = {
                 'accuracy_promedio': np.mean([modelo_optimizado.score(X, Y)]),
@@ -562,9 +562,9 @@ class Loteria:
         frecuencia_completa = datos.groupby('Hora')['Animal'].value_counts(normalize=True).mul(100).rename('Probabilidad').reset_index()
         top_10_map = {}
         for hora_24h in frecuencia_completa['Hora'].unique():
-            top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(10)['Animal'].tolist()
+            top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(25)['Animal'].tolist()
             top_10_map[hora_24h] = top_10_lista
-        print("Lista Top-10 generada para todas las horas.")
+        print("Lista Top-25 generada para todas las horas.")
         self.simular_estrategia(datos, top_10_map)
 
     def evaluacion_estrategia_ia(self, datos, matriz_prediccion_ia):
@@ -661,11 +661,11 @@ class Loteria:
         print("=" * 60)
         for hora, animales in sorted(matriz_prediccion.items()):
             print(f"Hora {hora}:")
-            for i, animal in enumerate(animales[:20], 1):
+            for i, animal in enumerate(animales[:25], 1):
                 print(f"    {i:2d}. {animal}")
             print()
 
-    def prediccion_hoy_ensemble(self, datos, modelo=None, le_y=None, k=20):
+    def prediccion_hoy_ensemble(self, datos, modelo=None, le_y=None, k=25):
         df = datos.copy()
         ultimo = df.iloc[-1]
         ultimo_animal = ultimo['Animal']
@@ -693,7 +693,7 @@ class Loteria:
                     X_query = df_hora[available_numeric + ['Hora_Sorteo']]
                     if not X_query.isnull().any().any():
                         y_proba = modelo.predict_proba(X_query)[0]
-                        indices_top_k = np.argsort(y_proba)[::-1][:20]
+                        indices_top_k = np.argsort(y_proba)[::-1][:25]
                         ml_top10_por_hora[hora_24h] = set(le_y.inverse_transform(indices_top_k))
                 except Exception:
                     pass
@@ -726,7 +726,7 @@ class Loteria:
                     ml_ok = False
             all_animals = set(list(markov_scores.keys()) + list(hourly_scores.keys()) + list(ml_scores.keys()))
             if not all_animals:
-                all_animals = set(animales_validos[:20])
+                all_animals = set(animales_validos[:25])
             max_m = max(markov_scores.values()) if markov_scores else 1
             max_h = max(hourly_scores.values()) if hourly_scores else 1
             max_ml = max(ml_scores.values()) if ml_scores else 1
@@ -796,9 +796,9 @@ class Loteria:
             for a in animales_validos:
                 p = trans_prob.get((ultimo['Animal'], a), 0)
                 if p > 0: markov_scores[a] = p
-        markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:20]
+        markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:25]
         hourly_scores = prob_hora.get(hora_target, {})
-        hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:20]
+        hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:25]
         rf_list = []
         xgb_list = []
         if modelo_rf and available_numeric:
@@ -808,7 +808,7 @@ class Loteria:
                 X_q = df_hora[available_numeric + ['Hora_Sorteo']]
                 if not X_q.isnull().any().any():
                     yp = modelo_rf.predict_proba(X_q)[0]
-                    rf_list = le_rf.inverse_transform(np.argsort(yp)[::-1][:20]).tolist()
+                    rf_list = le_rf.inverse_transform(np.argsort(yp)[::-1][:25]).tolist()
                     rf_scores = {a: yp[i]*100 for i, a in enumerate(le_rf.classes_)}
             except Exception:
                 rf_scores = {}
@@ -821,7 +821,7 @@ class Loteria:
                 X_q = df_hora[available_numeric + ['Hora_Sorteo']]
                 if not X_q.isnull().any().any():
                     yp = modelo_xgb.predict_proba(X_q)[0]
-                    xgb_list = le_xgb.inverse_transform(np.argsort(yp)[::-1][:20]).tolist()
+                    xgb_list = le_xgb.inverse_transform(np.argsort(yp)[::-1][:25]).tolist()
                     xgb_scores = {a: yp[i]*100 for i, a in enumerate(le_xgb.classes_)}
             except Exception:
                 xgb_scores = {}
@@ -849,7 +849,7 @@ class Loteria:
         print(f"\n  >>> RESUMEN: Interseccion de Modelos para {target_12h} <<<")
         print(f"  {'#':<3} {'Animal':<12} {'#Modelos':<9} {'Modelos':<12} {'Top en':<24}")
         print(f"  {'-'*60}")
-        for i, (a, cnt, _) in enumerate(scored[:20], 1):
+        for i, (a, cnt, _) in enumerate(scored[:25], 1):
             mods = []
             pos = []
             if a in markov_top: mods.append("M"); pos.append(f"M#{markov_top.index(a)+1}")
@@ -874,7 +874,9 @@ class Loteria:
         available_numeric = [f for f in numeric_candidates if f in df_eval.columns]
         animales_validos = list(self.animales_carac.keys())
         trans_prob, trans_total = self._transiciones_markov(df)
-        freq_hora = self._frecuencias_hora(df, 'Hora')
+        freq_hora = self._frecuencias_hora(df, 'Solo_hora')
+        global_freq = df['Animal'].value_counts(normalize=True).mul(100)
+        global_top25 = set(global_freq.head(25).index)
         resultados = []
         rf_count = 0
         xgb_count = 0
@@ -886,7 +888,7 @@ class Loteria:
             prev_state = df_eval.iloc[i]
             actual = df_eval.iloc[i + 1]
             animal_real = actual['Animal']
-            hora_real = actual['Hora']
+            hora_real = actual['Solo_hora']
             fecha = actual['Fecha']
             markov_scores = {}
             ultimo_animal = prev_state['Animal']
@@ -895,7 +897,7 @@ class Loteria:
                     p = trans_prob.get((ultimo_animal, a), 0)
                     if p > 0:
                         markov_scores[a] = p
-            markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:20]
+            markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:25]
             markov_rank = markov_top.index(animal_real) + 1 if animal_real in markov_top else None
             markov_full = sorted(markov_scores, key=markov_scores.get, reverse=True)
             markov_all_rank = markov_full.index(animal_real) + 1 if animal_real in markov_full else None
@@ -903,17 +905,15 @@ class Loteria:
             if hora_real in freq_hora:
                 for a, p in freq_hora[hora_real].items():
                     hourly_scores[a] = p
-            hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:20]
+            hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:25]
             hourly_rank = hourly_top.index(animal_real) + 1 if animal_real in hourly_top else None
             hourly_full = sorted(hourly_scores, key=hourly_scores.get, reverse=True)
             hourly_all_rank = hourly_full.index(animal_real) + 1 if animal_real in hourly_full else None
-            max_markov = max(markov_scores.values()) if markov_scores else 1
             combined_mh_scores = {}
-            for a in animales_validos:
-                mp = markov_scores.get(a, 0) / max_markov * 100
+            for a in markov_scores:
                 hp = hourly_scores.get(a, 0)
-                combined_mh_scores[a] = mp + hp
-            combined_mh_top = sorted(combined_mh_scores, key=combined_mh_scores.get, reverse=True)[:20]
+                combined_mh_scores[a] = markov_scores[a] + hp
+            combined_mh_top = sorted(combined_mh_scores, key=combined_mh_scores.get, reverse=True)[:25]
             combined_mh_rank = combined_mh_top.index(animal_real) + 1 if animal_real in combined_mh_top else None
             rf_top = []
             rf_rank = None
@@ -926,7 +926,7 @@ class Loteria:
                         rf_count += 1
                         y_proba = modelo_rf.predict_proba(X)[0]
                         indices = np.argsort(y_proba)[::-1]
-                        rf_top = le_rf.inverse_transform(indices[:20]).tolist()
+                        rf_top = le_rf.inverse_transform(indices[:25]).tolist()
                         rf_all = le_rf.inverse_transform(indices).tolist()
                         rf_rank = rf_top.index(animal_real) + 1 if animal_real in rf_top else None
                         rf_all_rank = rf_all.index(animal_real) + 1 if animal_real in rf_all else None
@@ -943,7 +943,7 @@ class Loteria:
                         xgb_count += 1
                         y_proba = modelo_xgb.predict_proba(X)[0]
                         indices = np.argsort(y_proba)[::-1]
-                        xgb_top = le_xgb.inverse_transform(indices[:20]).tolist()
+                        xgb_top = le_xgb.inverse_transform(indices[:25]).tolist()
                         xgb_all = le_xgb.inverse_transform(indices).tolist()
                         xgb_rank = xgb_top.index(animal_real) + 1 if animal_real in xgb_top else None
                         xgb_all_rank = xgb_all.index(animal_real) + 1 if animal_real in xgb_all else None
@@ -960,11 +960,12 @@ class Loteria:
                     if a in xgb_top:
                         score += 20 - xgb_top.index(a)
                     combined_rf_xgb_scores[a] = score
-                combined_rf_xgb_top = sorted(combined_rf_xgb_scores, key=combined_rf_xgb_scores.get, reverse=True)[:20]
+                combined_rf_xgb_top = sorted(combined_rf_xgb_scores, key=combined_rf_xgb_scores.get, reverse=True)[:25]
                 combined_rf_xgb_rank = combined_rf_xgb_top.index(animal_real) + 1 if animal_real in combined_rf_xgb_top else None
             else:
                 combined_rf_xgb_top = []
                 combined_rf_xgb_rank = None
+            global_hit = animal_real in global_top25
             top1 = xgb_top[0] if xgb_top else rf_top[0] if rf_top else combined_mh_top[0] if combined_mh_top else markov_top[0] if markov_top else hourly_top[0] if hourly_top else "?"
             acertado = animal_real in (xgb_top or rf_top or combined_mh_top or markov_top or hourly_top)
             resultados.append({
@@ -976,6 +977,7 @@ class Loteria:
                 'rf_rank': rf_rank, 'rf_all_rank': rf_all_rank,
                 'xgb_rank': xgb_rank, 'xgb_all_rank': xgb_all_rank,
                 'combined_rf_xgb_rank': combined_rf_xgb_rank,
+                'global_hit': global_hit,
             })
         print(f"\n{'='*90}")
         print(f"  EVALUACION AUTOMATICA: Prediccion vs Realidad")
@@ -1000,7 +1002,7 @@ class Loteria:
             rf_hits = sum(1 for r in resultados if r['rf_rank'] is not None)
             xgb_hits = sum(1 for r in resultados if r['xgb_rank'] is not None)
             combined_rx_hits = sum(1 for r in resultados if r['combined_rf_xgb_rank'] is not None)
-            print(f"\nPRECISION TOP-20 por modelo:")
+            print(f"\nPRECISION TOP-25 por modelo:")
             print(f"  Markov (M):              {markov_hits}/{total} = {markov_hits/total*100:.1f}%")
             print(f"  Hist. Hora (H):          {hourly_hits}/{total} = {hourly_hits/total*100:.1f}%")
             print(f"  M + H:                   {combined_mh_hits}/{total} = {combined_mh_hits/total*100:.1f}%")
@@ -1010,11 +1012,14 @@ class Loteria:
                 print(f"  XGBoost:                 {xgb_hits}/{xgb_count} = {xgb_hits/xgb_count*100:.1f}%")
             if rf_count > 0 and xgb_count > 0:
                 print(f"  RF + XGB:                {combined_rx_hits}/{total} = {combined_rx_hits/total*100:.1f}%")
-        HORA_ORDER = ['08:00:00','09:00:00','10:00:00','11:00:00','12:00:00','13:00:00',
-                      '14:00:00','15:00:00','16:00:00','17:00:00','18:00:00','19:00:00']
+            global_hits = sum(1 for r in resultados if r['global_hit'])
+            print(f"  Global Top-25:           {global_hits}/{total} = {global_hits/total*100:.1f}%")
+        HORA_ORDER = ['08:00 AM','09:00 AM','10:00 AM','11:00 AM','12:00 PM','01:00 PM',
+                      '02:00 PM','03:00 PM','04:00 PM','05:00 PM','06:00 PM','07:00 PM']
         MODEL_RANK_MAP = {'Markov': 'markov_rank', 'Hora': 'hourly_rank', 'M+H': 'combined_mh_rank',
-                          'RF': 'rf_rank', 'XGB': 'xgb_rank', 'RF+XGB': 'combined_rf_xgb_rank'}
-        visible_models = ['Markov', 'Hora', 'M+H']
+                          'RF': 'rf_rank', 'XGB': 'xgb_rank', 'RF+XGB': 'combined_rf_xgb_rank',
+                          'Global': 'global_hit'}
+        visible_models = ['Markov', 'Hora', 'M+H', 'Global']
         if rf_count > 0:
             visible_models.append('RF')
         if xgb_count > 0:
@@ -1024,7 +1029,7 @@ class Loteria:
         def _fmt(pct):
             return f"{pct:.1f}%" if pct > 50 else "——"
         print(f"\n{'='*90}")
-        print(f"  ACIERTOS TOP-20 POR HORA")
+        print(f"  ACIERTOS TOP-25 POR HORA")
         print(f"{'='*90}")
         header = f"{'Hora':<10}" + "".join(f"{m:<10}" for m in visible_models) + f"{'Sorteos':<8}"
         print(header)
@@ -1037,7 +1042,10 @@ class Loteria:
             cells = [f"{h[:5]:<10}"]
             for m in visible_models:
                 rank_key = MODEL_RANK_MAP[m]
-                hits = sum(1 for r in sub if r[rank_key] is not None)
+                if m == 'Global':
+                    hits = sum(1 for r in sub if r['global_hit'])
+                else:
+                    hits = sum(1 for r in sub if r[rank_key] is not None)
                 cells.append(f"{_fmt(hits/n*100):<10}")
             cells.append(f"{n:<8}")
             print("".join(cells))
@@ -1051,7 +1059,7 @@ class Loteria:
             return
         animales_validos = list(self.animales_carac.keys())
         trans_prob, trans_total = self._transiciones_markov(df)
-        freq_hora = self._frecuencias_hora(df, 'Hora')
+        freq_hora = self._frecuencias_hora(df, 'Solo_hora')
         df['Dia_Semana'] = pd.to_datetime(df['Fecha'].astype(str)).dt.day_name()
         DIA_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         DIA_NOMBRE = {'Monday':'Lunes','Tuesday':'Martes','Wednesday':'Miercoles','Thursday':'Jueves','Friday':'Viernes','Saturday':'Sabado','Sunday':'Domingo'}
@@ -1062,7 +1070,7 @@ class Loteria:
             prev_state = df.iloc[i-1]
             actual = df.iloc[i]
             animal_real = actual['Animal']
-            hora_real = actual['Hora']
+            hora_real = actual['Solo_hora']
             dia = df.iloc[i]['Dia_Semana']
             markov_scores = {}
             ultimo_animal = prev_state['Animal']
@@ -1071,21 +1079,19 @@ class Loteria:
                     p = trans_prob.get((ultimo_animal, a), 0)
                     if p > 0:
                         markov_scores[a] = p
-            markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:20]
+            markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:25]
             markov_hit = animal_real in markov_top
             hourly_scores = {}
             if hora_real in freq_hora:
                 for a, p in freq_hora[hora_real].items():
                     hourly_scores[a] = p
-            hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:20]
+            hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:25]
             hourly_hit = animal_real in hourly_top
-            max_m = max(markov_scores.values()) if markov_scores else 1
-            combined = {}
-            for a in animales_validos:
-                mp = markov_scores.get(a, 0) / max_m * 100
+            combined_scores = {}
+            for a in markov_scores:
                 hp = hourly_scores.get(a, 0)
-                combined[a] = mp + hp
-            combined_top = sorted(combined, key=combined.get, reverse=True)[:20]
+                combined_scores[a] = markov_scores[a] + hp
+            combined_top = sorted(combined_scores, key=combined_scores.get, reverse=True)[:25]
             combined_hit = animal_real in combined_top
             resultados.append({
                 'dia': dia, 'markov': markov_hit, 'hourly': hourly_hit, 'combined': combined_hit
@@ -1095,7 +1101,7 @@ class Loteria:
             print("No se generaron resultados")
             return
         print(f"\n{'='*70}")
-        print(f"  ACIERTOS POR DIA DE LA SEMANA (Top-20)")
+        print(f"  ACIERTOS POR DIA DE LA SEMANA (Top-25)")
         print(f"  Basado en {len(df_res)} sorteos analizados")
         print(f"{'='*70}")
         header = f"{'Dia':<12} {'Markov':<10} {'Hora':<10} {'Combinado':<12} {'Sorteos':<8}"
@@ -1129,7 +1135,7 @@ class Loteria:
             return
         animales_validos = list(self.animales_carac.keys())
         trans_prob, trans_total = self._transiciones_markov(df)
-        freq_hora = self._frecuencias_hora(df, 'Hora')
+        freq_hora = self._frecuencias_hora(df, 'Solo_hora')
         resultados = []
         for i in range(1, len(df)):
             if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']:
@@ -1137,7 +1143,7 @@ class Loteria:
             prev_state = df.iloc[i-1]
             actual = df.iloc[i]
             animal_real = actual['Animal']
-            hora_real = actual['Hora']
+            hora_real = actual['Solo_hora']
             markov_scores = {}
             ultimo_animal = prev_state['Animal']
             if ultimo_animal in trans_total and trans_total[ultimo_animal] > 0:
@@ -1145,21 +1151,19 @@ class Loteria:
                     p = trans_prob.get((ultimo_animal, a), 0)
                     if p > 0:
                         markov_scores[a] = p
-            markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:20]
+            markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:25]
             markov_hit = animal_real in markov_top
             hourly_scores = {}
             if hora_real in freq_hora:
                 for a, p in freq_hora[hora_real].items():
                     hourly_scores[a] = p
-            hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:20]
+            hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:25]
             hourly_hit = animal_real in hourly_top
-            max_m = max(markov_scores.values()) if markov_scores else 1
-            combined = {}
-            for a in animales_validos:
-                mp = markov_scores.get(a, 0) / max_m * 100
+            combined_scores = {}
+            for a in markov_scores:
                 hp = hourly_scores.get(a, 0)
-                combined[a] = mp + hp
-            combined_top = sorted(combined, key=combined.get, reverse=True)[:20]
+                combined_scores[a] = markov_scores[a] + hp
+            combined_top = sorted(combined_scores, key=combined_scores.get, reverse=True)[:25]
             combined_hit = animal_real in combined_top
             resultados.append({
                 'hora': hora_real, 'markov': markov_hit, 'hourly': hourly_hit, 'combined': combined_hit
@@ -1168,20 +1172,11 @@ class Loteria:
         if df_res.empty:
             print("No se generaron resultados")
             return
-        HORA_ORDER = ['08:00:00','09:00:00','10:00:00','11:00:00','12:00:00','13:00:00',
-                      '14:00:00','15:00:00','16:00:00','17:00:00','18:00:00','19:00:00']
-
-        def hora_label(h):
-            hh = int(h.split(':')[0])
-            period = 'AM' if hh < 12 else 'PM'
-            if hh > 12:
-                hh -= 12
-            if hh == 0:
-                hh = 12
-            return f'{hh:02d}:00 {period}'
+        HORA_ORDER = ['08:00 AM','09:00 AM','10:00 AM','11:00 AM','12:00 PM','01:00 PM',
+                      '02:00 PM','03:00 PM','04:00 PM','05:00 PM','06:00 PM','07:00 PM']
 
         print(f"\n{'='*70}")
-        print(f"  ACIERTOS POR HORA (Top-20)")
+        print(f"  ACIERTOS POR HORA (Top-25)")
         print(f"  Basado en {len(df_res)} sorteos analizados")
         print(f"{'='*70}")
         header = f"{'Hora':<12} {'Markov':<10} {'Hora':<10} {'Combinado':<12} {'Sorteos':<8}"
@@ -1194,7 +1189,7 @@ class Loteria:
             mk = sub['markov'].mean() * 100
             hr = sub['hourly'].mean() * 100
             cb = sub['combined'].mean() * 100
-            print(f"{hora_label(h):<12} {mk:<10.1f}% {hr:<10.1f}% {cb:<12.1f}% {len(sub):<8}")
+            print(f"{h:<12} {mk:<10.1f}% {hr:<10.1f}% {cb:<12.1f}% {len(sub):<8}")
         print(f"\n  Resumen global:")
         print(f"  Markov:    {df_res['markov'].mean()*100:.1f}%")
         print(f"  Hora:      {df_res['hourly'].mean()*100:.1f}%")
@@ -1203,11 +1198,11 @@ class Loteria:
         for col, label in [('markov','Markov'), ('hourly','Hora'), ('combined','Combinado')]:
             best = df_res.groupby('hora')[col].mean().idxmax()
             best_val = df_res.groupby('hora')[col].mean().max() * 100
-            print(f"     {label}: {hora_label(best)} ({best_val:.1f}%)")
+            print(f"     {label}: {best} ({best_val:.1f}%)")
         print(f"\n  Ranking Combinado (Top-3 mejores horas):")
         top3 = df_res.groupby('hora')['combined'].mean().sort_values(ascending=False).head(3)
         for h, v in top3.items():
-            print(f"     {hora_label(h)} -> {v*100:.1f}%")
+            print(f"     {h} -> {v*100:.1f}%")
         print(f"\n{'='*70}\n")
         return df_res
 
@@ -1305,7 +1300,7 @@ class Loteria:
         print("   Para cada animal, los 10 mas probables que le siguen:\n")
         matriz = self.generar_matriz_probabilidad(datos.copy())
         for animal in matriz.index:
-            top10 = matriz.loc[animal].sort_values(ascending=False).head(10)
+            top10 = matriz.loc[animal].sort_values(ascending=False).head(25)
             top10 = top10[top10 > 0]
             if top10.empty:
                 continue
@@ -1342,7 +1337,7 @@ class Loteria:
         for hora in sorted(horas_unicas):
             df_hora = frecuencia_completa[frecuencia_completa['Solo_hora'] == hora].copy()
             total_sorteos = total_sorteos_por_hora[total_sorteos_por_hora['Solo_hora'] == hora]['Total_Sorteos'].iloc[0]
-            top_10 = df_hora.sort_values(by='Probabilidad', ascending=False).head(10)
+            top_10 = df_hora.sort_values(by='Probabilidad', ascending=False).head(25)
             print(f"\nHORA: {hora} (Total Sorteos: {total_sorteos})")
             print(top_10[['Animal', 'Probabilidad']].to_string(index=False, float_format="%.2f%%"))
 
@@ -1352,7 +1347,7 @@ class Loteria:
         print("  PREDICCION COMBINADA MARKOV + HORA")
         print("=" * 74)
         print("  Ranking = Prob_Markov + Prob_Historica_Hora")
-        print("  Precision estimada: ~44% Top-10 (vs 43% Markov solo)\n")
+        print("  Precision estimada: ~44% Top-25 (vs 43% Markov solo)\n")
         trans_prob, trans_total = self._transiciones_markov(df)
         hora_freq = self._frecuencias_hora(df, 'Solo_hora')
         ultimo = df.iloc[-1]
@@ -1370,23 +1365,23 @@ class Loteria:
         scored.sort(reverse=True)
         print(f"  {'#':<3} {'Animal':<14} {'Score':<7} {'Markov':<7} {'+Hora':<7}")
         print(f"  {'-'*42}")
-        for i, (sc, mp, hp, animal) in enumerate(scored[:20], 1):
+        for i, (sc, mp, hp, animal) in enumerate(scored[:25], 1):
             print(f"  {i:<3} {animal:<14} {sc:<7.1f} {mp:<7.1f}% {hp:<7.1f}%")
-        print(f"\n  (Mostrando Top-20 de {len(scored)} animales posibles)")
+        print(f"\n  (Mostrando Top-25 de {len(scored)} animales posibles)")
         print(f"\n  {'='*74}")
-        print(f"  PREDICCION POR CADA HORA DEL DIA (Top-20 combinado)")
+        print(f"  PREDICCION POR CADA HORA DEL DIA (Top-25 combinado)")
         print(f"  {'='*74}")
         horas = sorted(df['Solo_hora'].unique())
         for hora in horas:
             if hora <= ultimo_hora:
                 continue
             h_scored = []
-            for animal in [a for _,_,_,a in scored[:20]]:
+            for animal in [a for _,_,_,a in scored[:25]]:
                 hp = hora_freq.get(hora, {}).get(animal, 0)
                 mp = trans_prob.get((ultimo_animal, animal), 0)
                 h_scored.append((mp + hp, animal))
             h_scored.sort(reverse=True)
-            top20 = ', '.join(f"{a} ({s:.0f})" for s,a in h_scored[:20])
+            top20 = ', '.join(f"{a} ({s:.0f})" for s,a in h_scored[:25])
             print(f"  {hora:<10} -> {top20}")
 
     def validar_modelo_markov(self, datos, porcentaje_entrenamiento=0.8, top_k=5):
@@ -1466,7 +1461,7 @@ class Loteria:
         print(f"   Veces que salio a esta hora: {prediccion_maxima['Conteo']}")
         print("-" * 50)
         print("\nTop 10 de animales en esta hora:")
-        print(frecuencia_animal[['Animal', 'Probabilidad']].head(10).to_string(index=False))
+        print(frecuencia_animal[['Animal', 'Probabilidad']].head(25).to_string(index=False))
 
     def agregar_datos_al_excel(self, datos_df):
         nombre_archivo = self.config['excel_file']
@@ -1529,7 +1524,7 @@ class Loteria:
         frecuencia_manana = datos_manana.groupby('Hora')['Animal'].value_counts(normalize=True).mul(100).rename('Probabilidad').reset_index()
         top_10_map_manana = {}
         for hora_24h in frecuencia_manana['Hora'].unique():
-            top_10_lista = frecuencia_manana[frecuencia_manana['Hora'] == hora_24h].head(15)['Animal'].tolist()
+            top_10_lista = frecuencia_manana[frecuencia_manana['Hora'] == hora_24h].head(25)['Animal'].tolist()
             top_10_map_manana[hora_24h] = top_10_lista
         print(f"Matriz de frecuencia generada para {len(top_10_map_manana)} horas de manana")
         APUESTA_POR_HORA = 500.0
@@ -1610,9 +1605,9 @@ class Loteria:
         horas_con_datos = frecuencia_completa['Hora'].unique()
         print(f"Horas con datos: {sorted(horas_con_datos)}")
         for hora_24h in horas_con_datos:
-            top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(10)['Animal'].tolist()
+            top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(25)['Animal'].tolist()
             top_10_map[hora_24h] = top_10_lista
-        print(f"Top-10 map creado: {len(top_10_map)} horas")
+        print(f"Top-25 map creado: {len(top_10_map)} horas")
         HORAS_MANANA = ['08:00:00', '09:00:00', '10:00:00', '11:00:00', '12:00:00', '13:00:00']
         HORAS_TARDE = ['14:00:00', '15:00:00', '16:00:00', '17:00:00', '18:00:00', '19:00:00']
         GASTO_TARDE = 3000.0
@@ -1761,7 +1756,7 @@ class Loteria:
             horas_con_datos = frecuencia_completa['Hora'].unique()
             print(f"Horas con datos en frecuencia: {sorted(horas_con_datos)}")
             for hora_24h in horas_con_datos:
-                top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(10)['Animal'].tolist()
+                top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(25)['Animal'].tolist()
                 top_10_map[hora_24h] = top_10_lista
             HORAS_MANANA = ['08:00:00', '09:00:00', '10:00:00', '11:00:00', '12:00:00', '13:00:00']
             HORAS_TARDE = ['14:00:00', '15:00:00', '16:00:00', '17:00:00', '18:00:00', '19:00:00']
@@ -1835,7 +1830,7 @@ class Loteria:
         frecuencia_completa = datos.groupby('Hora')['Animal'].value_counts(normalize=True).mul(100).rename('Probabilidad').reset_index()
         top_10_map = {}
         for hora_24h in frecuencia_completa['Hora'].unique():
-            top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(10)['Animal'].tolist()
+            top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(25)['Animal'].tolist()
             top_10_map[hora_24h] = top_10_lista
         HORAS_MANANA = ['08:00:00', '09:00:00', '10:00:00', '11:00:00', '12:00:00', '13:00:00']
         HORAS_TARDE = ['14:00:00', '15:00:00', '16:00:00', '17:00:00', '18:00:00', '19:00:00']
@@ -2019,7 +2014,7 @@ class Loteria:
         for animal, conteo in frecuencia_reciente.items():
             porcentaje = (conteo / len(ultimos_50)) * 100
             print(f"   * {animal}: {conteo} veces ({porcentaje:.1f}%)")
-        return datos_ordenados.head(10)
+        return datos_ordenados.head(25)
 
     def ver_estado_actual_dia(self, datos):
         from datetime import date
@@ -2062,7 +2057,7 @@ class Loteria:
         frecuencia_completa = datos.groupby('Hora')['Animal'].value_counts(normalize=True).mul(100).rename('Probabilidad').reset_index()
         top_10_map = {}
         for hora_24h in frecuencia_completa['Hora'].unique():
-            top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(15)['Animal'].tolist()
+            top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(25)['Animal'].tolist()
             top_10_map[hora_24h] = top_10_lista
         resultados = []
         for fecha, df_dia in datos.groupby('Fecha'):
@@ -2139,6 +2134,62 @@ class Loteria:
         print(mejores[['Horas_Evaluacion', 'Umbral_Aciertos', 'Dias_Con_Racha', 'Ganancia_Estimada']].to_string(index=False))
         return df_umbrales
 
+    def prediccion_dia_completo(self, datos):
+        df = datos.copy()
+        if len(df) < 5:
+            print("Pocos datos")
+            return
+        animales_validos = list(self.animales_carac.keys())
+        hoy = df.iloc[-1]['Fecha']
+        if isinstance(hoy, datetime):
+            hoy = hoy.date()
+        df_ayer = df[pd.to_datetime(df['Fecha']).dt.date < hoy]
+        if df_ayer.empty:
+            print("No hay datos del dia anterior")
+            return
+        ultimo_ayer = df_ayer.iloc[-1]
+        print(f"\n{'='*80}")
+        print(f"  PREDICCION DEL DIA COMPLETO ({hoy})")
+        print(f"  Basada en el ultimo animal del dia anterior: {ultimo_ayer['Animal']} a las {ultimo_ayer['Solo_hora']}")
+        print(f"{'='*80}")
+        trans_prob, trans_total = self._transiciones_markov(df)
+        hora_freq = self._frecuencias_hora(df, 'Solo_hora')
+        horas = ['08:00 AM','09:00 AM','10:00 AM','11:00 AM','12:00 PM','01:00 PM',
+                 '02:00 PM','03:00 PM','04:00 PM','05:00 PM','06:00 PM','07:00 PM']
+        for hora in horas:
+            m_scores = {}
+            for a in animales_validos:
+                p = trans_prob.get((ultimo_ayer['Animal'], a), 0)
+                if p > 0:
+                    m_scores[a] = p
+            h_scores = hora_freq.get(hora, {})
+            mh = []
+            for a in m_scores:
+                hp = h_scores.get(a, 0)
+                mh.append((m_scores[a] + hp, m_scores[a], hp, a))
+            mh.sort(reverse=True)
+            print(f"\n  HORA: {hora}")
+            print(f"  {'#':<3} {'Animal':<12} {'Markov':<7} {'Hora':<7} {'M+H':<7}")
+            print(f"  {'-'*33}")
+            for i, (sc, mp, hp, a) in enumerate(mh[:5], 1):
+                print(f"  {i:<3} {a:<12} {mp:<5.1f}% {hp:<5.2f}% {sc:<6.2f}%")
+
+    def top_25_general(self, datos):
+        df = datos.copy()
+        if len(df) < 5:
+            print("Pocos datos")
+            return
+        freq = df['Animal'].value_counts(normalize=True).mul(100)
+        print(f"\n{'='*60}")
+        print(f"  TOP-25 GENERAL (frecuencia global)")
+        print(f"  Basado en {len(df)} sorteos")
+        print(f"{'='*60}")
+        print(f"  {'#':<3} {'Animal':<12} {'Frecuencia':<10} {'#Sorteos':<8}")
+        print(f"  {'-'*33}")
+        for i, (a, p) in enumerate(freq.head(25).items(), 1):
+            n = int(p * len(df) / 100)
+            print(f"  {i:<3} {a:<12} {p:<7.2f}%  {n:<8}")
+
     def main_menu(self, datos):
         opciones = [
             "Ingresar Sorteo del Dia (Actualizar Excel)",
@@ -2213,7 +2264,7 @@ class Loteria:
                 elif modelo_cargado:
                     datos_con_features = self.agregar_caracteristicas_avanzadas(datos.copy())
                     matriz_prediccion = self.predecir_top_k_por_hora(
-                        modelo_cargado, le_y_cargado, datos_con_features.copy(), k=20
+                        modelo_cargado, le_y_cargado, datos_con_features.copy(), k=25
                     )
                     self.mostrar_matriz_prediccion(matriz_prediccion)
                     self.evaluacion_estrategia_ia(datos.copy(), matriz_prediccion)

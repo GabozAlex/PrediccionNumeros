@@ -60,6 +60,8 @@ ver_ultimos_registros_y_faltantes = analizador.ver_ultimos_registros_y_faltantes
 ver_estado_actual_dia = analizador.ver_estado_actual_dia
 analizar_rachas_tempranas = analizador.analizar_rachas_tempranas
 probar_umbrales_rachas = analizador.probar_umbrales_rachas
+prediccion_dia_completo = analizador.prediccion_dia_completo
+top_25_general = analizador.top_25_general
 main_menu = analizador.main_menu
 
 if __name__ == "__main__":

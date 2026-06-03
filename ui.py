@@ -271,20 +271,12 @@ class LottoPredictorUI:
         btns = [
             ("Matriz Transicion Markov", "pred_matriz"),
             ("Probabilidad por Hora", "pred_prob_hora"),
-            ("Markov + Hora", "pred_markov_hora"),
             ("Predecir Siguiente (M+H)", "pred_sig_mh"),
+            ("Top-25 General", "pred_top25"),
         ]
         for texto, accion in btns:
             btn = ttk.Button(frame_btn, text=texto, command=lambda a=accion: self._prediccion_accion(a))
             btn.pack(side=tk.LEFT, padx=2)
-
-        frame_val = ttk.Frame(tab)
-        frame_val.pack(fill=tk.X, padx=5, pady=2)
-        ttk.Label(frame_val, text="Validacion Cruzada - Top-K:").pack(side=tk.LEFT, padx=2)
-        self._val_topk = ttk.Combobox(frame_val, values=[1, 3, 5, 10, 15, 20], width=5)
-        self._val_topk.set(5)
-        self._val_topk.pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_val, text="Ejecutar", command=self._validar_markov).pack(side=tk.LEFT, padx=5)
 
         grid = ttk.Frame(tab)
         grid.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -292,13 +284,11 @@ class LottoPredictorUI:
         grid.columnconfigure(1, weight=1)
         grid.rowconfigure(0, weight=1)
         grid.rowconfigure(1, weight=1)
-        grid.rowconfigure(2, weight=2)
 
         self._agregar_panel_salida(grid, "Matriz Transicion Markov", "pred_matriz", 0, 0)
         self._agregar_panel_salida(grid, "Probabilidad por Hora", "pred_prob_hora", 0, 1)
-        self._agregar_panel_salida(grid, "Markov + Hora", "pred_markov_hora", 1, 0)
-        self._agregar_panel_salida(grid, "Validacion Cruzada", "pred_validacion", 1, 1)
-        self._agregar_panel_salida(grid, "Predecir Siguiente (M+H)", "pred_sig_mh", 2, 0, columnspan=2)
+        self._agregar_panel_salida(grid, "Top-25 General", "pred_top25", 1, 0)
+        self._agregar_panel_salida(grid, "Predecir Siguiente (M+H)", "pred_sig_mh", 1, 1)
 
         self._precargar_prediccion()
 
@@ -312,22 +302,6 @@ class LottoPredictorUI:
             return
         self._ejecutar_en_hilo(lambda: analizador.matriz_probabilidad_transicion(d), self._paneles["pred_matriz"])
         self._ejecutar_en_hilo(lambda: analizador.probabilidad_maxima_por_hora(d), self._paneles["pred_prob_hora"])
-
-    def _validar_markov(self):
-        datos = self._get_datos()
-        if datos is None or datos.empty:
-            messagebox.showwarning("Sin datos", "No hay datos cargados")
-            return
-        try:
-            k = int(self._val_topk.get())
-        except ValueError:
-            messagebox.showerror("Error", "Top-K debe ser un numero")
-            return
-        d = datos.copy()
-        analizador = self._get_analizador()
-        if not analizador:
-            return
-        self._ejecutar_en_hilo(lambda: analizador.validar_modelo_markov(d, top_k=k), self._paneles["pred_validacion"])
 
     def _prediccion_accion(self, accion):
         if accion == "pred_sig_mh":
@@ -348,6 +322,8 @@ class LottoPredictorUI:
             "pred_matriz": lambda: analizador.matriz_probabilidad_transicion(d),
             "pred_prob_hora": lambda: analizador.probabilidad_maxima_por_hora(d),
             "pred_markov_hora": lambda: analizador.prediccion_markov_hora(d),
+            "pred_dia_completo": lambda: analizador.prediccion_dia_completo(d),
+            "pred_top25": lambda: analizador.top_25_general(d),
         }
         func = mapa.get(accion)
         if func:
@@ -632,14 +608,14 @@ class LottoPredictorUI:
                 print("  EVALUACION COMPLETA CON IA")
                 print("=" * 60)
                 print("\n--- 1. PREDICCION COMBINADA PARA HOY (Ensemble) ---")
-                analizador.prediccion_hoy_ensemble(d2, modelo, le_y, k=20)
+                analizador.prediccion_hoy_ensemble(d2, modelo, le_y, k=25)
                 if rf and le_rf:
-                    print("\n--- 2. MATRIZ RANDOM FOREST (Top-20 por hora) ---")
-                    matriz_rf = analizador.predecir_top_k_por_hora(rf, le_rf, d2.copy(), k=20)
+                    print("\n--- 2. MATRIZ RANDOM FOREST (Top-25 por hora) ---")
+                    matriz_rf = analizador.predecir_top_k_por_hora(rf, le_rf, d2.copy(), k=25)
                     analizador.mostrar_matriz_prediccion(matriz_rf)
                 if xgb and le_xgb:
-                    print("\n--- 3. MATRIZ XGBoost (Top-20 por hora) ---")
-                    matriz_xgb = analizador.predecir_top_k_por_hora(xgb, le_xgb, d2.copy(), k=20)
+                    print("\n--- 3. MATRIZ XGBoost (Top-25 por hora) ---")
+                    matriz_xgb = analizador.predecir_top_k_por_hora(xgb, le_xgb, d2.copy(), k=25)
                     analizador.mostrar_matriz_prediccion(matriz_xgb)
             ejecutar_en_panel(tarea)
 

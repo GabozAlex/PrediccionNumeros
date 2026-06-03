@@ -298,7 +298,7 @@ def entrenar_modelo_ml(X, Y, modelo, modelo_nombre, numeric_features, categorica
         
     return pipeline
 
-def predecir_top_k_por_hora(pipeline, le_y, df_ml, k=10):
+def predecir_top_k_por_hora(pipeline, le_y, df_ml, k=25):
     """
     Genera la matriz de predicción Top-K usando TODAS las características disponibles
     """
@@ -576,7 +576,7 @@ def random_forest_optimizado(datos):
         )
         
         matriz_prediccion = predecir_top_k_por_hora(
-            modelo_optimizado, le_y, datos_con_features.copy(), k=10
+            modelo_optimizado, le_y, datos_con_features.copy(), k=25
         )
         
         metricas = {
@@ -614,7 +614,7 @@ def xgboost_optimizado(datos):
         )
         
         matriz_prediccion = predecir_top_k_por_hora(
-            modelo_optimizado, le_y, datos_con_features.copy(), k=10
+            modelo_optimizado, le_y, datos_con_features.copy(), k=25
         )
         
         metricas = {
@@ -641,7 +641,7 @@ def xgboost_optimizado(datos):
 def evaluacion_estrategia_frecuencia(datos):
     """
     Opción 9: Evalúa la estrategia de apuesta dinámica (Observar Mañana, Apostar Tarde)
-    utilizando el Top-10 de Frecuencia Histórica (La línea base).
+    utilizando el Top-25 de Frecuencia Histórica (La línea base).
     """
     print("\n--- 🧠 Evaluación Estrategia DINÁMICA (BASE: Frecuencia Histórica) ---")
     
@@ -649,10 +649,10 @@ def evaluacion_estrategia_frecuencia(datos):
     
     top_10_map = {}
     for hora_24h in frecuencia_completa['Hora'].unique():
-        top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(10)['Animal'].tolist()
+        top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(25)['Animal'].tolist()
         top_10_map[hora_24h] = top_10_lista
     
-    print("Lista Top-10 generada para todas las horas.")
+    print("Lista Top-25 generada para todas las horas.")
 
     simular_estrategia(datos, top_10_map)
 
@@ -791,7 +791,7 @@ def mostrar_matriz_prediccion(matriz_prediccion):
     print("=" * 60)
     for hora, animales in sorted(matriz_prediccion.items()):
         print(f"🕐 {hora}:")
-        for i, animal in enumerate(animales[:10], 1):
+        for i, animal in enumerate(animales[:25], 1):
             print(f"    {i:2d}. {animal}")
         print()
 
@@ -799,7 +799,7 @@ def mostrar_matriz_prediccion(matriz_prediccion):
 # PREDICCIÓN ENSEMBLE PARA HOY
 # -----------------------------------------------------------
 
-def prediccion_hoy_ensemble(datos, modelo=None, le_y=None, k=10):
+def prediccion_hoy_ensemble(datos, modelo=None, le_y=None, k=25):
     """
     Predicción combinada para HOY usando Ensemble:
     Markov (del último animal conocido) + Probabilidad por Hora + ML (si disponible).
@@ -847,7 +847,7 @@ def prediccion_hoy_ensemble(datos, modelo=None, le_y=None, k=10):
     
     resultados = {}
     
-    # Precomputar ML Top-10 por hora para acuerdo
+    # Precomputar ML Top-25 por hora para acuerdo
     ml_top10_por_hora = {}
     if modelo is not None and le_y is not None and len(available_numeric) > 0:
         for hora_24h in horas_del_dia:
@@ -857,7 +857,7 @@ def prediccion_hoy_ensemble(datos, modelo=None, le_y=None, k=10):
                 X_query = df_hora[available_numeric + ['Hora_Sorteo']]
                 if not X_query.isnull().any().any():
                     y_proba = modelo.predict_proba(X_query)[0]
-                    indices_top_k = np.argsort(y_proba)[::-1][:10]
+                    indices_top_k = np.argsort(y_proba)[::-1][:25]
                     ml_top10_por_hora[hora_24h] = set(le_y.inverse_transform(indices_top_k))
             except Exception:
                 pass
@@ -899,7 +899,7 @@ def prediccion_hoy_ensemble(datos, modelo=None, le_y=None, k=10):
         # --- Ensemble ---
         all_animals = set(list(markov_scores.keys()) + list(hourly_scores.keys()) + list(ml_scores.keys()))
         if not all_animals:
-            all_animals = set(animales_validos[:10])
+            all_animals = set(animales_validos[:25])
         
         max_m = max(markov_scores.values()) if markov_scores else 1
         max_h = max(hourly_scores.values()) if hourly_scores else 1
@@ -982,7 +982,7 @@ def evaluar_predicciones_historicas(datos, modelo=None, le_y=None, n_ultimos=30)
             trans_prob[(prev, curr)] = cnt / trans_total[prev] * 100
 
     # Hourly prob (global)
-    freq_hora = df.groupby('Hora')['Animal'].value_counts(normalize=True).mul(100)
+    freq_hora = df.groupby('Solo_hora')['Animal'].value_counts(normalize=True).mul(100)
 
     resultados = []
     ml_count = 0
@@ -994,7 +994,7 @@ def evaluar_predicciones_historicas(datos, modelo=None, le_y=None, n_ultimos=30)
         prev_state = df_eval.iloc[i]
         actual = df_eval.iloc[i + 1]
         animal_real = actual['Animal']
-        hora_real = actual['Hora']
+        hora_real = actual['Solo_hora']
         fecha = actual['Fecha']
 
         # Markov
@@ -1005,7 +1005,7 @@ def evaluar_predicciones_historicas(datos, modelo=None, le_y=None, n_ultimos=30)
                 p = trans_prob.get((ultimo_animal, a), 0)
                 if p > 0:
                     markov_scores[a] = p
-        markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:10]
+        markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:25]
         markov_hit = animal_real in markov_top
         markov_rank = markov_top.index(animal_real) + 1 if markov_hit else None
 
@@ -1014,18 +1014,16 @@ def evaluar_predicciones_historicas(datos, modelo=None, le_y=None, n_ultimos=30)
         if hora_real in freq_hora.index:
             for a, p in freq_hora[hora_real].items():
                 hourly_scores[a] = p
-        hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:10]
+        hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:25]
         hourly_hit = animal_real in hourly_top
         hourly_rank = hourly_top.index(animal_real) + 1 if hourly_hit else None
 
         # Combined Markov + Hourly
-        max_markov = max(markov_scores.values()) if markov_scores else 1
         combined_scores = {}
-        for a in animales_validos:
-            mp = markov_scores.get(a, 0) / max_markov * 100
+        for a in markov_scores:
             hp = hourly_scores.get(a, 0)
-            combined_scores[a] = mp + hp
-        combined_top = sorted(combined_scores, key=combined_scores.get, reverse=True)[:10]
+            combined_scores[a] = markov_scores[a] + hp
+        combined_top = sorted(combined_scores, key=combined_scores.get, reverse=True)[:25]
         combined_hit = animal_real in combined_top
         combined_rank = combined_top.index(animal_real) + 1 if combined_hit else None
 
@@ -1042,7 +1040,7 @@ def evaluar_predicciones_historicas(datos, modelo=None, le_y=None, n_ultimos=30)
                 if not X.isnull().any().any():
                     ml_count += 1
                     y_proba = modelo.predict_proba(X)[0]
-                    indices = np.argsort(y_proba)[::-1][:10]
+                    indices = np.argsort(y_proba)[::-1][:25]
                     ml_top = le_y.inverse_transform(indices).tolist()
                     ml_hit = animal_real in ml_top
                     ml_rank = ml_top.index(animal_real) + 1 if ml_hit else None
@@ -1148,7 +1146,7 @@ def analizar_aciertos_por_dia_semana(datos):
             trans_prob[(prev, curr)] = cnt / trans_total[prev] * 100
 
     # Hourly probability
-    freq_hora = df.groupby('Hora')['Animal'].value_counts(normalize=True).mul(100)
+    freq_hora = df.groupby('Solo_hora')['Animal'].value_counts(normalize=True).mul(100)
 
     # Day of week
     df['Dia_Semana'] = pd.to_datetime(df['Fecha'].astype(str)).dt.day_name()
@@ -1162,7 +1160,7 @@ def analizar_aciertos_por_dia_semana(datos):
         prev_state = df.iloc[i-1]
         actual = df.iloc[i]
         animal_real = actual['Animal']
-        hora_real = actual['Hora']
+        hora_real = actual['Solo_hora']
         dia = df.iloc[i]['Dia_Semana']
 
         # Markov
@@ -1173,7 +1171,7 @@ def analizar_aciertos_por_dia_semana(datos):
                 p = trans_prob.get((ultimo_animal, a), 0)
                 if p > 0:
                     markov_scores[a] = p
-        markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:10]
+        markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:25]
         markov_hit = animal_real in markov_top
 
         # Hourly
@@ -1181,17 +1179,15 @@ def analizar_aciertos_por_dia_semana(datos):
         if hora_real in freq_hora.index:
             for a, p in freq_hora[hora_real].items():
                 hourly_scores[a] = p
-        hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:10]
+        hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:25]
         hourly_hit = animal_real in hourly_top
 
         # Combined
-        max_m = max(markov_scores.values()) if markov_scores else 1
-        combined = {}
-        for a in animales_validos:
-            mp = markov_scores.get(a, 0) / max_m * 100
+        combined_scores = {}
+        for a in markov_scores:
             hp = hourly_scores.get(a, 0)
-            combined[a] = mp + hp
-        combined_top = sorted(combined, key=combined.get, reverse=True)[:10]
+            combined_scores[a] = markov_scores[a] + hp
+        combined_top = sorted(combined_scores, key=combined_scores.get, reverse=True)[:25]
         combined_hit = animal_real in combined_top
 
         resultados.append({
@@ -1204,7 +1200,7 @@ def analizar_aciertos_por_dia_semana(datos):
         return
 
     print(f"\n{'='*70}")
-    print(f"  📅 ACIERTOS POR DÍA DE LA SEMANA (Top-10)")
+    print(f"  📅 ACIERTOS POR DÍA DE LA SEMANA (Top-25)")
     print(f"  Basado en {len(df_res)} sorteos analizados")
     print(f"{'='*70}")
 
@@ -1268,7 +1264,7 @@ def analizar_aciertos_por_hora(datos):
         for curr, cnt in trans_count[prev].items():
             trans_prob[(prev, curr)] = cnt / trans_total[prev] * 100
 
-    freq_hora = df.groupby('Hora')['Animal'].value_counts(normalize=True).mul(100)
+    freq_hora = df.groupby('Solo_hora')['Animal'].value_counts(normalize=True).mul(100)
 
     resultados = []
     for i in range(1, len(df)):
@@ -1277,7 +1273,7 @@ def analizar_aciertos_por_hora(datos):
         prev_state = df.iloc[i-1]
         actual = df.iloc[i]
         animal_real = actual['Animal']
-        hora_real = actual['Hora']
+        hora_real = actual['Solo_hora']
 
         markov_scores = {}
         ultimo_animal = prev_state['Animal']
@@ -1286,23 +1282,21 @@ def analizar_aciertos_por_hora(datos):
                 p = trans_prob.get((ultimo_animal, a), 0)
                 if p > 0:
                     markov_scores[a] = p
-        markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:10]
+        markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:25]
         markov_hit = animal_real in markov_top
 
         hourly_scores = {}
         if hora_real in freq_hora.index:
             for a, p in freq_hora[hora_real].items():
                 hourly_scores[a] = p
-        hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:10]
+        hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:25]
         hourly_hit = animal_real in hourly_top
 
-        max_m = max(markov_scores.values()) if markov_scores else 1
-        combined = {}
-        for a in animales_validos:
-            mp = markov_scores.get(a, 0) / max_m * 100
+        combined_scores = {}
+        for a in markov_scores:
             hp = hourly_scores.get(a, 0)
-            combined[a] = mp + hp
-        combined_top = sorted(combined, key=combined.get, reverse=True)[:10]
+            combined_scores[a] = markov_scores[a] + hp
+        combined_top = sorted(combined_scores, key=combined_scores.get, reverse=True)[:25]
         combined_hit = animal_real in combined_top
 
         resultados.append({
@@ -1314,18 +1308,11 @@ def analizar_aciertos_por_hora(datos):
         print("❌ No se generaron resultados")
         return
 
-    HORA_ORDER = ['08:00:00','09:00:00','10:00:00','11:00:00','12:00:00','13:00:00',
-                  '14:00:00','15:00:00','16:00:00','17:00:00','18:00:00','19:00:00']
-
-    def hora_label(h):
-        hh = int(h.split(':')[0])
-        period = 'AM' if hh < 12 else 'PM'
-        if hh > 12: hh -= 12
-        if hh == 0: hh = 12
-        return f'{hh:02d}:00 {period}'
+    HORA_ORDER = ['08:00 AM','09:00 AM','10:00 AM','11:00 AM','12:00 PM','01:00 PM',
+                  '02:00 PM','03:00 PM','04:00 PM','05:00 PM','06:00 PM','07:00 PM']
 
     print(f"\n{'='*70}")
-    print(f"  ⏰ ACIERTOS POR HORA (Top-10)")
+    print(f"  ⏰ ACIERTOS POR HORA (Top-25)")
     print(f"  Basado en {len(df_res)} sorteos analizados")
     print(f"{'='*70}")
 
@@ -1339,7 +1326,7 @@ def analizar_aciertos_por_hora(datos):
         mk = sub['markov'].mean() * 100
         hr = sub['hourly'].mean() * 100
         cb = sub['combined'].mean() * 100
-        print(f"{hora_label(h):<12} {mk:<10.1f}% {hr:<10.1f}% {cb:<12.1f}% {len(sub):<8}")
+        print(f"{h:<12} {mk:<10.1f}% {hr:<10.1f}% {cb:<12.1f}% {len(sub):<8}")
 
     print(f"\n  Resumen global:")
     print(f"  Markov:    {df_res['markov'].mean()*100:.1f}%")
@@ -1483,14 +1470,14 @@ def generar_matriz_probabilidad(datos):
     return matriz_probabilidad.fillna(0)
 
 def matriz_probabilidad_transicion(datos):
-    """Muestra el Top-10 de animales siguientes más probables para cada animal."""
+    """Muestra el Top-25 de animales siguientes más probables para cada animal."""
     print("\n--- 📊 TOP-10 POR ANIMAL (Matriz de Transición Markov) ---")
     print("   Para cada animal, los 10 más probables que le siguen:\n")
 
     matriz = generar_matriz_probabilidad(datos.copy())
 
     for animal in matriz.index:
-        top10 = matriz.loc[animal].sort_values(ascending=False).head(10)
+        top10 = matriz.loc[animal].sort_values(ascending=False).head(25)
         top10 = top10[top10 > 0]
         if top10.empty:
             continue
@@ -1548,7 +1535,7 @@ def probabilidad_maxima_por_hora(datos):
         
         total_sorteos = total_sorteos_por_hora[total_sorteos_por_hora['Solo_hora'] == hora]['Total_Sorteos'].iloc[0]
 
-        top_10 = df_hora.sort_values(by='Probabilidad', ascending=False).head(10)
+        top_10 = df_hora.sort_values(by='Probabilidad', ascending=False).head(25)
         
         print(f"\n⏰ **HORA: {hora}** (Total Sorteos: {total_sorteos})")
         print(top_10[['Animal', 'Probabilidad']].to_string(index=False, float_format="%.2f%%"))
@@ -1562,7 +1549,7 @@ def prediccion_markov_hora(datos):
     print("  🔀 PREDICCIÓN COMBINADA MARKOV + HORA")
     print("=" * 74)
     print("  Ranking = Prob_Markov + Prob_Historica_Hora")
-    print("  Precisión estimada: ~44% Top-10 (vs 43% Markov solo)\n")
+    print("  Precisión estimada: ~44% Top-25 (vs 43% Markov solo)\n")
 
     # Markov
     trans = defaultdict(lambda: defaultdict(int))
@@ -1595,9 +1582,9 @@ def prediccion_markov_hora(datos):
 
     print(f"  {'#':<3} {'Animal':<14} {'Score':<7} {'Markov':<7} {'+Hora':<7}")
     print(f"  {'-'*42}")
-    for i, (sc, mp, hp, animal) in enumerate(scored[:10], 1):
+    for i, (sc, mp, hp, animal) in enumerate(scored[:25], 1):
         print(f"  {i:<3} {animal:<14} {sc:<7.1f} {mp:<7.1f}% {hp:<7.1f}%")
-    print(f"\n  (Mostrando Top-10 de {len(scored)} animales posibles)")
+    print(f"\n  (Mostrando Top-25 de {len(scored)} animales posibles)")
 
     # También por cada hora del día
     print(f"\n  {'='*74}")
@@ -1608,7 +1595,7 @@ def prediccion_markov_hora(datos):
         if hora <= ultimo_hora:
             continue
         h_scored = []
-        for animal in [a for _,_,_,a in scored[:20]]:
+        for animal in [a for _,_,_,a in scored[:25]]:
             hp = hora_freq.get((hora, animal), 0) * 100
             mp = next((c/max_c*100 for a,c in items if a==animal), 0)
             h_scored.append((mp + hp, animal))
@@ -1725,7 +1712,7 @@ def prediccion_por_hora_especifica(datos):
     print("-" * 50)
     
     print("\nTop 10 de animales en esta hora:")
-    print(frecuencia_animal[['Animal', 'Probabilidad']].head(10).to_string(index=False))
+    print(frecuencia_animal[['Animal', 'Probabilidad']].head(25).to_string(index=False))
 
 # -----------------------------------------------------------
 # FUNCIONALIDAD: INGRESAR DATOS
@@ -1813,7 +1800,7 @@ def evaluacion_estrategia_solo_manana(datos, hora_corte='13:00:00'):
     
     top_10_map_manana = {}
     for hora_24h in frecuencia_manana['Hora'].unique():
-        top_10_lista = frecuencia_manana[frecuencia_manana['Hora'] == hora_24h].head(15)['Animal'].tolist()
+        top_10_lista = frecuencia_manana[frecuencia_manana['Hora'] == hora_24h].head(25)['Animal'].tolist()
         top_10_map_manana[hora_24h] = top_10_lista
     
     print(f"✅ Matriz de frecuencia generada para {len(top_10_map_manana)} horas de mañana")
@@ -1929,10 +1916,10 @@ def evaluacion_estrategia_filtrada(datos, filtro_ganancia=True):
     print(f"🔍 Horas con datos: {sorted(horas_con_datos)}")
     
     for hora_24h in horas_con_datos:
-        top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(10)['Animal'].tolist()
+        top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(25)['Animal'].tolist()
         top_10_map[hora_24h] = top_10_lista
     
-    print(f"✅ Top-10 map creado: {len(top_10_map)} horas")
+    print(f"✅ Top-25 map creado: {len(top_10_map)} horas")
     
     # Parámetros de la estrategia
     HORAS_MANANA = ['08:00:00', '09:00:00', '10:00:00', '11:00:00', '12:00:00', '13:00:00']
@@ -2153,7 +2140,7 @@ def analisis_estadistico_avanzado(datos):
         print(f"🔍 Horas con datos en frecuencia: {sorted(horas_con_datos)}")
         
         for hora_24h in horas_con_datos:
-            top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(10)['Animal'].tolist()
+            top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(25)['Animal'].tolist()
             top_10_map[hora_24h] = top_10_lista
 
         HORAS_MANANA = ['08:00:00', '09:00:00', '10:00:00', '11:00:00', '12:00:00', '13:00:00']
@@ -2264,7 +2251,7 @@ def patrones_dias_rentables(datos):
     
     top_10_map = {}
     for hora_24h in frecuencia_completa['Hora'].unique():
-        top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(10)['Animal'].tolist()
+        top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(25)['Animal'].tolist()
         top_10_map[hora_24h] = top_10_lista
 
     HORAS_MANANA = ['08:00:00', '09:00:00', '10:00:00', '11:00:00', '12:00:00', '13:00:00']
@@ -2489,7 +2476,6 @@ def ver_ultimos_registros_y_faltantes(datos):
     print("="*60)
     columnas_mostrar = ['Fecha', 'Hora', 'Animal', 'Numero']
     ultimos_10 = datos_ordenados[columnas_mostrar].head(10)
-    print(ultimos_10.to_string(index=False))
     
     # Encontrar la fecha más reciente
     fecha_mas_reciente = datos_ordenados['Fecha'].iloc[0]
@@ -2547,7 +2533,7 @@ def ver_ultimos_registros_y_faltantes(datos):
         porcentaje = (conteo / len(ultimos_50)) * 100
         print(f"   • {animal}: {conteo} veces ({porcentaje:.1f}%)")
     
-    return datos_ordenados.head(10)
+    return datos_ordenados.head(25)
 
 def ver_estado_actual_dia(datos):
     """
@@ -2614,7 +2600,7 @@ def analizar_rachas_tempranas(datos, horas_evaluacion=3, umbral_aciertos=3):
     
     top_10_map = {}
     for hora_24h in frecuencia_completa['Hora'].unique():
-        top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(15)['Animal'].tolist()
+        top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(25)['Animal'].tolist()
         top_10_map[hora_24h] = top_10_lista
     
     resultados = []
@@ -2811,7 +2797,7 @@ def main_menu(datos, datosLotto):
             elif modelo_cargado:
                 datos_con_features = agregar_caracteristicas_avanzadas(datos.copy())
                 matriz_prediccion = predecir_top_k_por_hora(
-                    modelo_cargado, le_y_cargado, datos_con_features.copy(), k=10
+                    modelo_cargado, le_y_cargado, datos_con_features.copy(), k=25
                 )
                 # 🆕 AGREGA ESTA LÍNEA:
                 mostrar_matriz_prediccion(matriz_prediccion)
