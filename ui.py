@@ -181,14 +181,29 @@ class LottoPredictorUI:
     def _get_datos(self):
         return self.datos.get(self.current_lottery)
 
+    def _crear_paned_grid(self, tab):
+        """Reemplaza grid 2x2 con PanedWindow arrastrable. Retorna [[(0,0),(0,1)],[(1,0),(1,1)]]"""
+        outer = ttk.PanedWindow(tab, orient=tk.HORIZONTAL)
+        outer.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        left = ttk.PanedWindow(outer, orient=tk.VERTICAL)
+        right = ttk.PanedWindow(outer, orient=tk.VERTICAL)
+        outer.add(left, weight=1)
+        outer.add(right, weight=1)
+        tl = ttk.Frame(left, relief=tk.RIDGE, borderwidth=1)
+        bl = ttk.Frame(left, relief=tk.RIDGE, borderwidth=1)
+        tr = ttk.Frame(right, relief=tk.RIDGE, borderwidth=1)
+        br = ttk.Frame(right, relief=tk.RIDGE, borderwidth=1)
+        left.add(tl, weight=1)
+        left.add(bl, weight=1)
+        right.add(tr, weight=1)
+        right.add(br, weight=1)
+        return [[tl, tr], [bl, br]]
+
     def _agregar_panel_salida(self, parent, label, name, row, column, columnspan=1):
-        frame = ttk.Frame(parent, relief=tk.RIDGE, borderwidth=1)
-        frame.grid(row=row, column=column, columnspan=columnspan, sticky='nsew', padx=2, pady=2)
+        frame = parent[row][column]
         ttk.Label(frame, text=label, font=("", 8, "bold")).pack(anchor=tk.W, padx=2)
         text = scrolledtext.ScrolledText(frame, wrap=tk.WORD, font=("Courier", 8))
         text.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
-        parent.columnconfigure(column, weight=1)
-        parent.rowconfigure(row, weight=1)
         self._paneles[name] = text
         return text
 
@@ -223,12 +238,7 @@ class LottoPredictorUI:
             btn = ttk.Button(frame_btn, text=texto, command=lambda a=accion: self._dashboard_accion(a))
             btn.pack(side=tk.LEFT, padx=2)
 
-        grid = ttk.Frame(tab)
-        grid.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        grid.columnconfigure(0, weight=1)
-        grid.columnconfigure(1, weight=1)
-        grid.rowconfigure(0, weight=1)
-        grid.rowconfigure(1, weight=1)
+        grid = self._crear_paned_grid(tab)
 
         self._agregar_panel_salida(grid, "Estado Rapido del Dia", "dash_estado", 0, 0)
         self._agregar_panel_salida(grid, "Ultimos Registros", "dash_ultimos", 0, 1)
@@ -268,66 +278,561 @@ class LottoPredictorUI:
         frame_btn = ttk.Frame(tab)
         frame_btn.pack(fill=tk.X, padx=5, pady=5)
 
-        btns = [
-            ("Matriz Transicion Markov", "pred_matriz"),
-            ("Probabilidad por Hora", "pred_prob_hora"),
-            ("Predecir Siguiente (M+H)", "pred_sig_mh"),
-            ("Top-25 General", "pred_top25"),
-        ]
-        for texto, accion in btns:
-            btn = ttk.Button(frame_btn, text=texto, command=lambda a=accion: self._prediccion_accion(a))
-            btn.pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_btn, text="Markov", command=self._dialogo_markov).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_btn, text="Prob. x Hora", command=self._dialogo_prob_hora).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_btn, text="Markov x Hora", command=self._dialogo_markov_hora).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_btn, text="Global x Hora", command=self._ventana_matriz_combinada).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_btn, text="Predecir Siguiente (M+H)", command=self._predecir_siguiente_mh_dialogo).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_btn, text="Top-25 General", command=lambda: self._panel_top25()).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_btn, text="Evaluar Precision", command=self._evaluar_precision).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_btn, text="Precision x Animal", command=self._evaluar_por_animal).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_btn, text="Backtesting", command=self._dialogo_backtesting).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_btn, text="Cadena del Dia", command=self._dialogo_cadena).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_btn, text="2do Orden", command=self._dialogo_segundo_orden).pack(side=tk.LEFT, padx=2)
 
-        grid = ttk.Frame(tab)
-        grid.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        grid.columnconfigure(0, weight=1)
-        grid.columnconfigure(1, weight=1)
-        grid.rowconfigure(0, weight=1)
-        grid.rowconfigure(1, weight=1)
-
-        self._agregar_panel_salida(grid, "Matriz Transicion Markov", "pred_matriz", 0, 0)
-        self._agregar_panel_salida(grid, "Probabilidad por Hora", "pred_prob_hora", 0, 1)
-        self._agregar_panel_salida(grid, "Top-25 General", "pred_top25", 1, 0)
-        self._agregar_panel_salida(grid, "Predecir Siguiente (M+H)", "pred_sig_mh", 1, 1)
-
-        self._precargar_prediccion()
-
-    def _precargar_prediccion(self):
-        datos = self._get_datos()
-        if datos is None or datos.empty:
-            return
-        d = datos.copy()
-        analizador = self._get_analizador()
-        if not analizador:
-            return
-        self._ejecutar_en_hilo(lambda: analizador.matriz_probabilidad_transicion(d), self._paneles["pred_matriz"])
-        self._ejecutar_en_hilo(lambda: analizador.probabilidad_maxima_por_hora(d), self._paneles["pred_prob_hora"])
-
-    def _prediccion_accion(self, accion):
-        if accion == "pred_sig_mh":
-            self._predecir_siguiente_mh_dialogo()
-            return
+    def _panel_top25(self):
         datos = self._get_datos()
         if datos is None or datos.empty:
             messagebox.showwarning("Sin datos", "No hay datos cargados")
             return
-        d = datos.copy()
         analizador = self._get_analizador()
         if not analizador:
             return
-        panel = self._paneles.get(accion)
-        if panel is None:
+        panel = self._paneles.get("pred_top28")
+        if panel:
+            self._ejecutar_en_hilo(lambda: analizador.top_25_general(datos.copy()), panel)
+
+    def _evaluar_precision(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
             return
-        mapa = {
-            "pred_matriz": lambda: analizador.matriz_probabilidad_transicion(d),
-            "pred_prob_hora": lambda: analizador.probabilidad_maxima_por_hora(d),
-            "pred_markov_hora": lambda: analizador.prediccion_markov_hora(d),
-            "pred_dia_completo": lambda: analizador.prediccion_dia_completo(d),
-            "pred_top25": lambda: analizador.top_25_general(d),
-        }
-        func = mapa.get(accion)
-        if func:
-            self._ejecutar_en_hilo(func, panel)
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Evaluacion Precision - {self.current_lottery}")
+        ventana.geometry("600x500")
+        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        txt.insert(tk.END, "Evaluando precision en ultimos 1000 sorteos...\n")
+        def tarea():
+            import pandas as pd
+            from collections import defaultdict
+            d = datos.copy().sort_values(['Fecha','Hora']).reset_index(drop=True)
+            corte = len(d) - 1000
+            train = d.iloc[:corte].copy()
+            test = d.iloc[corte:].copy()
+            dp = analizador._preparar_datos_markov(train)
+            tg, tot, th, toh = analizador._construir_matrices_markov(dp, incluir_trasnocho=False)
+            def eval_k(k):
+                ag=ah=uni=total=0
+                for i in range(len(test)-1):
+                    if test.iloc[i]['Fecha'] != test.iloc[i+1]['Fecha']:
+                        continue
+                    ant, hp = test.iloc[i]['Animal'], test.iloc[i]['Hora']
+                    sig, hn = test.iloc[i+1]['Animal'], test.iloc[i+1]['Hora']
+                    par = (hp, hn)
+                    total += 1
+                    g_ok = ant in tot and tot[ant] > 0 and sig in [a for a,c in sorted(tg[ant].items(), key=lambda x:-x[1])[:k]]
+                    h_ok = par in th and ant in toh[par] and toh[par][ant] > 0 and sig in [a for a,c in sorted(th[par][ant].items(), key=lambda x:-x[1])[:k]]
+                    if g_ok: ag += 1
+                    if h_ok: ah += 1
+                    if g_ok or h_ok: uni += 1
+                return ag/total*100, ah/total*100, uni/total*100
+            texto = f"Evaluacion Precision (train: {len(train)}, test: {len(test)})\n"
+            texto += "=" * 60 + "\n\n"
+            texto += f"{'Top-K':>6} {'Global':>8} {'xHora':>8} {'Union':>8} {'Azar':>8}\n"
+            texto += '-' * 40 + '\n'
+            for k in [1, 3, 5, 10, 25]:
+                g, h, u = eval_k(k)
+                texto += f"Top-{k:<2}  {g:>6.1f}% {h:>6.1f}% {u:>6.1f}% {k/38*100:>5.1f}%\n"
+            texto += "\nUnion = acierta si aparece en Global O xHora\n"
+            texto += "Azar  = probabilidad al azar (k/38)\n"
+            ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
+        threading.Thread(target=tarea, daemon=True).start()
+
+    def _evaluar_por_animal(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Precision x Animal - {self.current_lottery}")
+        ventana.geometry("700x600")
+        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        txt.insert(tk.END, "Evaluando precision por animal...\n")
+        def tarea():
+            import pandas as pd
+            d = datos.copy().sort_values(['Fecha','Hora']).reset_index(drop=True)
+            corte = len(d) - 1000
+            train = d.iloc[:corte].copy()
+            test = d.iloc[corte:].copy()
+            dp = analizador._preparar_datos_markov(train)
+            tg, tot, _, _ = analizador._construir_matrices_markov(dp, incluir_trasnocho=False)
+            ac_g = {}
+            ac_h = {}
+            total_animal = {}
+            for i in range(len(test)-1):
+                if test.iloc[i]['Fecha'] != test.iloc[i+1]['Fecha']:
+                    continue
+                ant, hp = test.iloc[i]['Animal'], test.iloc[i]['Hora']
+                sig = test.iloc[i+1]['Animal']
+                if ant not in total_animal:
+                    total_animal[ant] = 0
+                    ac_g[ant] = 0
+                    ac_h[ant] = 0
+                total_animal[ant] += 1
+                if ant in tot and tot[ant] > 0:
+                    if sig in [a for a,c in sorted(tg[ant].items(), key=lambda x:-x[1])[:25]]:
+                        ac_g[ant] += 1
+            # Sort by worst accuracy first
+            ranking = sorted([(a, ac_g.get(a,0)/total_animal[a]*100 if total_animal[a] else 0, total_animal[a]) for a in total_animal], key=lambda x: x[1])
+            texto = f"Precision Global Top-25 por Animal (ultimos 1000 sorteos)\n"
+            texto += "=" * 60 + "\n\n"
+            texto += f"{'Animal':<14} {'Aciertos':>8} {'Total':>6} {'%':>6}\n"
+            texto += '-' * 40 + '\n'
+            for a, pct, tot in ranking:
+                barra = '#' * max(1, int(pct/4))
+                texto += f"  {a:<14} {ac_g[a]:>3}/{total_animal[a]:<2} {pct:>5.1f}% {barra}\n"
+            texto += f"\nPeores 5: {', '.join(a for a,_,_ in ranking[:5])}"
+            texto += f"\nMejores 5: {', '.join(a for a,_,_ in ranking[-5:])}"
+            ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
+        threading.Thread(target=tarea, daemon=True).start()
+
+    def _dialogo_backtesting(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Backtesting - {self.current_lottery}")
+        ventana.geometry("750x650")
+        frame_top = ttk.Frame(ventana)
+        frame_top.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(frame_top, text="Animal:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry_animal = ttk.Entry(frame_top, width=14, font=("", 10))
+        entry_animal.pack(side=tk.LEFT, padx=2)
+        entry_animal.focus_set()
+        ttk.Label(frame_top, text="Desde:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry_desde = ttk.Entry(frame_top, width=12, font=("", 10))
+        entry_desde.pack(side=tk.LEFT, padx=2)
+        entry_desde.insert(0, "2024-06-03")
+        ttk.Label(frame_top, text="Hasta:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry_hasta = ttk.Entry(frame_top, width=12, font=("", 10))
+        entry_hasta.pack(side=tk.LEFT, padx=2)
+        entry_hasta.insert(0, "2024-06-09")
+        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        def analizar():
+            animal = entry_animal.get().strip().upper()
+            desde = entry_desde.get().strip()
+            hasta = entry_hasta.get().strip()
+            if not animal or not desde or not hasta:
+                return
+            txt.delete("1.0", tk.END)
+            txt.insert(tk.END, f"Analizando {animal} del {desde} al {hasta}...\n")
+            def tarea():
+                import pandas as pd
+                d = datos.copy()
+                d['Fecha'] = pd.to_datetime(d['Fecha']).dt.date
+                d = d.sort_values(['Fecha','Hora']).reset_index(drop=True)
+                dp = analizador._preparar_datos_markov(d)
+                tg, tot, _, _ = analizador._construir_matrices_markov(dp, incluir_trasnocho=False)
+                desde_dt = pd.to_datetime(desde).date()
+                hasta_dt = pd.to_datetime(hasta).date()
+                sub = d[(d['Fecha'] >= desde_dt) & (d['Fecha'] <= hasta_dt)].copy()
+                hits = 0
+                total = 0
+                texto = f"Backtesting: {animal} del {desde} al {hasta}\n"
+                texto += "=" * 70 + "\n\n"
+                for i in range(len(sub)-1):
+                    if sub.iloc[i]['Animal'] != animal:
+                        continue
+                    if sub.iloc[i]['Fecha'] == sub.iloc[i+1]['Fecha']:
+                        total += 1
+                        f = sub.iloc[i]['Fecha']
+                        h = sub.iloc[i]['Hora']
+                        sig = sub.iloc[i+1]['Animal']
+                        preds = []
+                        if animal in tot and tot[animal] > 0:
+                            preds = [a for a,c in sorted(tg[animal].items(), key=lambda x:-x[1])[:25]]
+                        rank = preds.index(sig) + 1 if sig in preds else 0
+                        if rank:
+                            hits += 1
+                            marca = "✅"
+                        else:
+                            marca = "❌"
+                        texto += f"  {f} {h}  {animal:<12} -> {sig:<12}  puesto #{rank if rank else '—'}{'  ' + marca if rank else ''}\n"
+                if total:
+                    texto += f"\nResumen: {hits}/{total} aciertos ({hits/total*100:.1f}%) en Top-25\n"
+                else:
+                    texto += "\nNo se encontraron ocurrencias de este animal en el rango\n"
+                # Show top predictions for reference
+                preds_list = []
+                if animal in tot and tot[animal] > 0:
+                    preds_list = [(a, c/tot[animal]*100) for a,c in sorted(tg[animal].items(), key=lambda x:-x[1])[:25]]
+                texto += f"\nTop-25 predictivo para {animal}:\n"
+                texto += '-' * 40 + '\n'
+                for i, (a, p) in enumerate(preds_list, 1):
+                    texto += f"  {i:2d}. {a:<14} ({p:.1f}%)\n"
+                ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
+            threading.Thread(target=tarea, daemon=True).start()
+        entry_animal.bind("<Return>", lambda e: analizar())
+        ttk.Button(frame_top, text="Analizar", command=analizar).pack(side=tk.LEFT, padx=5)
+
+    def _dialogo_cadena(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Cadena del Dia - {self.current_lottery}")
+        ventana.geometry("700x600")
+        frame_top = ttk.Frame(ventana)
+        frame_top.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(frame_top, text="Animal inicial:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry_animal = ttk.Entry(frame_top, width=15, font=("", 10))
+        entry_animal.pack(side=tk.LEFT, padx=2)
+        entry_animal.focus_set()
+        ttk.Label(frame_top, text="Hora inicio:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        horas = ["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM",
+                 "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM",
+                 "04:00 PM", "05:00 PM", "06:00 PM"]
+        combo = ttk.Combobox(frame_top, values=horas, state="readonly", width=12, font=("", 10))
+        combo.pack(side=tk.LEFT, padx=2)
+        combo.set(horas[0])
+        trasnocho_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(frame_top, text="Trasnocho", variable=trasnocho_var).pack(side=tk.LEFT, padx=5)
+        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        def simular():
+            animal = entry_animal.get().strip().upper()
+            hora_str = combo.get()
+            if not animal or not hora_str:
+                return
+            txt.delete("1.0", tk.END)
+            txt.insert(tk.END, f"Simulando cadena desde {animal} a las {hora_str}...\n")
+            def tarea():
+                dt = pd.to_datetime(hora_str, format="%I:%M %p")
+                h_actual = dt.strftime("%H:%M:%S")
+                parejas = analizador.get_parejas_horarias()
+                if trasnocho_var.get():
+                    parejas = list(parejas) + [('19:00:00','08:00:00')]
+                # Find starting index in parejas
+                idx = 0
+                for i, (o, d) in enumerate(parejas):
+                    if o == h_actual:
+                        idx = i
+                        break
+                d = datos.copy()
+                texto = f"Cadena del dia desde {animal} ({hora_str})\n"
+                texto += "=" * 60 + "\n\n"
+                texto += f"{'Hora':>8}  {'Actual':<14}  {'Top-5 siguientes':<55}\n"
+                texto += '-' * 80 + '\n'
+                animal_act = animal
+                for i in range(idx, len(parejas)):
+                    o, dest = parejas[i]
+                    h_12 = pd.to_datetime(o, format='%H:%M:%S').strftime('%I:%M %p')
+                    h_dest_12 = pd.to_datetime(dest, format='%H:%M:%S').strftime('%I:%M %p')
+                    mat = analizador.get_matriz_hora_por_animal(d, o, dest, top_k=5, incluir_trasnocho=trasnocho_var.get())
+                    preds = mat.get(animal_act, [])
+                    top5 = [f"{a}({p:.0f}%)" for a, p, _ in preds[:5]] if preds else ["(sin datos)"]
+                    texto += f"  {h_12:<8}  {animal_act:<14}  {', '.join(top5):<55}\n"
+                    animal_act = preds[0][0] if preds else animal_act
+                ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
+            threading.Thread(target=tarea, daemon=True).start()
+        entry_animal.bind("<Return>", lambda e: simular())
+        ttk.Button(frame_top, text="Simular", command=simular).pack(side=tk.LEFT, padx=5)
+
+    def _dialogo_segundo_orden(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Segundo Orden - {self.current_lottery}")
+        ventana.geometry("550x520")
+        frame_top = ttk.Frame(ventana)
+        frame_top.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(frame_top, text="Animal previo 1:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry1 = ttk.Entry(frame_top, width=12, font=("", 10))
+        entry1.pack(side=tk.LEFT, padx=2)
+        ttk.Label(frame_top, text="Animal previo 2:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry2 = ttk.Entry(frame_top, width=12, font=("", 10))
+        entry2.pack(side=tk.LEFT, padx=2)
+        entry2.focus_set()
+        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        def buscar():
+            a1 = entry1.get().strip().upper()
+            a2 = entry2.get().strip().upper()
+            if not a1 or not a2:
+                messagebox.showwarning("Error", "Ingresa ambos animales")
+                return
+            txt.delete("1.0", tk.END)
+            txt.insert(tk.END, f"Buscando siguientes de ({a1}, {a2})...\n")
+            def tarea():
+                items = analizador.get_matriz_segundo_orden(datos.copy(), a1, a2, top_k=25)
+                total_m = sum(c for _, _, c in items)
+                texto = f"Animales previos: {a1} -> {a2}  |  total pares: {total_m}\n\n"
+                texto += f"{'#':>3} {'Animal':<14} {'%':>5} {'Muestras':>8}\n"
+                texto += "-" * 35 + "\n"
+                if not items:
+                    texto += "(sin datos para este par)\n"
+                for i, (a3, p, c) in enumerate(items, 1):
+                    texto += f"  {i:2d} {a3:<14} {p:>4.1f}% {c:>8}\n"
+                ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
+            threading.Thread(target=tarea, daemon=True).start()
+        entry1.bind("<Return>", lambda e: entry2.focus_set())
+        entry2.bind("<Return>", lambda e: buscar())
+        ttk.Button(frame_top, text="Buscar", command=buscar).pack(side=tk.LEFT, padx=5)
+
+    def _dialogo_markov(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana = tk.Toplevel(self.root)
+        ventana.title("Markov - Buscar Animal")
+        ventana.geometry("550x520")
+        frame_top = ttk.Frame(ventana)
+        frame_top.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(frame_top, text="Animal actual:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry = ttk.Entry(frame_top, width=20, font=("", 10))
+        entry.pack(side=tk.LEFT, padx=2)
+        entry.focus_set()
+        trasnocho_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(frame_top, text="7PM→8AM (trasnocho)", variable=trasnocho_var).pack(side=tk.LEFT, padx=5)
+        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        def buscar():
+            animal = entry.get().strip().upper()
+            if not animal:
+                messagebox.showwarning("Error", "Ingresa un animal")
+                return
+            txt.delete("1.0", tk.END)
+            txt.insert(tk.END, f"Buscando siguientes de {animal}...\n")
+            def tarea():
+                matriz = analizador.get_matriz_global_por_animal(datos.copy(), top_k=25, incluir_trasnocho=trasnocho_var.get())
+                items = matriz.get(animal, [])
+                total_m = sum(c for _, _, c in items)
+                texto = f"Animal actual: {animal}  |  total muestras: {total_m}"
+                if trasnocho_var.get():
+                    texto += " (con trasnocho 7PM→8AM)"
+                texto += f"\n\nTop siguientes:\n"
+                texto += f"{'#':>3} {'Animal':<14} {'%':>5} {'Muestras':>8}\n"
+                texto += "-" * 35 + "\n"
+                if not items:
+                    texto += "(sin datos para este animal)\n"
+                for i, (a2, p, c) in enumerate(items, 1):
+                    texto += f"  {i:2d} {a2:<14} {p:>4.1f}% {c:>8}\n"
+                ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
+            threading.Thread(target=tarea, daemon=True).start()
+        entry.bind("<Return>", lambda e: buscar())
+        ttk.Button(frame_top, text="Buscar", command=buscar).pack(side=tk.LEFT, padx=5)
+
+    def _dialogo_prob_hora(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        ventana = tk.Toplevel(self.root)
+        ventana.title("Probabilidad por Hora")
+        ventana.geometry("550x500")
+        frame_top = ttk.Frame(ventana)
+        frame_top.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(frame_top, text="Hora:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        horas = ["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM",
+                 "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM",
+                 "04:00 PM", "05:00 PM", "06:00 PM", "07:00 PM"]
+        combo = ttk.Combobox(frame_top, values=horas, state="readonly", width=15, font=("", 10))
+        combo.pack(side=tk.LEFT, padx=2)
+        combo.set(horas[-1])
+        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        def buscar():
+            hora_str = combo.get()
+            if not hora_str:
+                return
+            txt.delete("1.0", tk.END)
+            txt.insert(tk.END, f"Calculando probabilidades para {hora_str}...\n")
+            def tarea():
+                d = datos.copy()
+                d_filtro = d[d["Solo_hora"] == hora_str]
+                if d_filtro.empty:
+                    ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, f"Sin datos para {hora_str}\n")))
+                    return
+                total = len(d_filtro)
+                conteo = d_filtro["Animal"].value_counts()
+                texto = f"Probabilidades para {hora_str} (total: {total} sorteos)\n"
+                texto += "=" * 50 + "\n"
+                for animal, cnt in conteo.head(25).items():
+                    pct = cnt / total * 100
+                    texto += f"  {animal:<14} {cnt:4d} ({pct:.1f}%)\n"
+                ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
+            threading.Thread(target=tarea, daemon=True).start()
+        combo.bind("<<ComboboxSelected>>", lambda e: buscar())
+        ttk.Button(frame_top, text="Buscar", command=buscar).pack(side=tk.LEFT, padx=5)
+
+    def _dialogo_markov_hora(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana = tk.Toplevel(self.root)
+        ventana.title("Markov x Hora")
+        ventana.geometry("550x520")
+        frame_top = ttk.Frame(ventana)
+        frame_top.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(frame_top, text="Animal:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry_animal = ttk.Entry(frame_top, width=15, font=("", 10))
+        entry_animal.pack(side=tk.LEFT, padx=2)
+        entry_animal.focus_set()
+        ttk.Label(frame_top, text="Hora:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        horas = ["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM",
+                 "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM",
+                 "04:00 PM", "05:00 PM", "06:00 PM", "07:00 PM"]
+        combo = ttk.Combobox(frame_top, values=horas, state="readonly", width=12, font=("", 10))
+        combo.pack(side=tk.LEFT, padx=2)
+        combo.set(horas[-1])
+        trasnocho_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(frame_top, text="7PM→8AM (trasnocho)", variable=trasnocho_var).pack(side=tk.LEFT, padx=5)
+        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        def buscar():
+            animal = entry_animal.get().strip().upper()
+            hora_str = combo.get()
+            if not animal or not hora_str:
+                return
+            txt.delete("1.0", tk.END)
+            txt.insert(tk.END, f"Calculando...\n")
+            def tarea():
+                dt = pd.to_datetime(hora_str, format="%I:%M %p")
+                solo_hora = dt.strftime("%H:%M:%S")
+                incluir_trasnocho = trasnocho_var.get()
+                h_dest = None
+                if incluir_trasnocho and solo_hora == '19:00:00':
+                    h_dest = '08:00:00'
+                else:
+                    for o, d in analizador.get_parejas_horarias():
+                        if o == solo_hora:
+                            h_dest = d
+                            break
+                if h_dest is None:
+                    ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, f"No hay transicion para {hora_str}\n")))
+                    return
+                matriz = analizador.get_matriz_hora_por_animal(datos.copy(), solo_hora, h_dest, top_k=25, incluir_trasnocho=incluir_trasnocho)
+                items = matriz.get(animal, [])
+                texto = f"Animal: {animal}  |  {hora_str} -> {pd.to_datetime(h_dest, format='%H:%M:%S').strftime('%I:%M %p')}"
+                if incluir_trasnocho:
+                    texto += " (con trasnocho)"
+                total_m = sum(c for _, _, c in items)
+                texto += f"\n" + "=" * 50 + f"\nTotal muestras: {total_m}\n\nTop siguientes:\n"
+                texto += f"{'#':>3} {'Animal':<14} {'%':>5} {'Muestras':>8}\n"
+                texto += "-" * 35 + "\n"
+                if not items:
+                    texto += "(sin datos para este animal a esta hora)\n"
+                for i, (a2, p, c) in enumerate(items, 1):
+                    texto += f"  {i:2d} {a2:<14} {p:>4.1f}% {c:>8}\n"
+                ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
+            threading.Thread(target=tarea, daemon=True).start()
+        entry_animal.bind("<Return>", lambda e: buscar())
+        combo.bind("<<ComboboxSelected>>", lambda e: buscar())
+        ttk.Button(frame_top, text="Buscar", command=buscar).pack(side=tk.LEFT, padx=5)
+
+    def _ventana_matriz_combinada(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        parejas = analizador.get_parejas_horarias()
+        opciones = [f"{o} -> {d}" for o, d in parejas] + ['19:00:00 -> 08:00:00']
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Global x Hora - {self.current_lottery}")
+        ventana.geometry("600x520")
+        frame_top = ttk.Frame(ventana)
+        frame_top.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(frame_top, text="Animal:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry_animal = ttk.Entry(frame_top, width=14, font=("", 10))
+        entry_animal.pack(side=tk.LEFT, padx=2)
+        entry_animal.focus_set()
+        trasnocho_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(frame_top, text="Trasnocho", variable=trasnocho_var).pack(side=tk.LEFT, padx=5)
+        ttk.Label(frame_top, text="Hora:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        combo = ttk.Combobox(frame_top, values=opciones, state="readonly", width=22)
+        combo.pack(side=tk.LEFT, padx=2)
+        combo.set(opciones[-1])
+        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        txt.insert(tk.END, "Selecciona animal y hora, luego clic en Buscar\n")
+        frame_bot = ttk.Frame(ventana)
+        frame_bot.pack(fill=tk.X, padx=5, pady=5)
+        def buscar():
+            animal = entry_animal.get().strip().upper()
+            seleccion = combo.get()
+            if not animal or not seleccion:
+                messagebox.showwarning("Error", "Ingresa animal y selecciona hora")
+                return
+            partes = seleccion.split(" -> ")
+            h_o, h_d = partes[0].strip(), partes[1].strip()
+            incluir_trasnocho = trasnocho_var.get()
+            txt.delete("1.0", tk.END)
+            txt.insert(tk.END, f"Calculando {animal} para {h_o} -> {h_d}...\n")
+            def tarea():
+                d = datos.copy()
+                mat_g = analizador.get_matriz_global_por_animal(d, top_k=25, incluir_trasnocho=incluir_trasnocho)
+                mat_h = analizador.get_matriz_hora_por_animal(d, h_o, h_d, top_k=25, incluir_trasnocho=incluir_trasnocho)
+                items_g = {a: (p, c) for a, p, c in mat_g.get(animal, [])}
+                items_h = {a: (p, c) for a, p, c in mat_h.get(animal, [])}
+                todos = set(items_g.keys()) | set(items_h.keys())
+                m_h = sum(c for _, c in items_h.values())
+                m_g = sum(c for _, c in items_g.values())
+                texto = f"Animal: {animal}  |  {h_o} -> {h_d}"
+                if incluir_trasnocho:
+                    texto += " (trasnocho)"
+                w_h = min(0.9, max(0.1, m_h / 50))
+                w_g = 1 - w_h
+                texto += f"  |  G:{m_g} H:{m_h} muestras  pesos G:{w_g:.0%} H:{w_h:.0%}"
+                texto += "\n" + "=" * 55 + "\n\n"
+                if not todos:
+                    texto += "(sin datos)\n"
+                else:
+                    combinado = {a: items_g.get(a, (0,0))[0]*w_g + items_h.get(a, (0,0))[0]*w_h for a in todos}
+                    top = sorted(combinado.items(), key=lambda x: -x[1])[:25]
+                    texto += f"{'#':>3} {'Animal':<14} {'Gral':>5} {'(n)':>4} {'Hora':>5} {'(n)':>4} {'Comb':>5}\n"
+                    texto += '-' * 45 + '\n'
+                    for i, (a2, p) in enumerate(top, 1):
+                        pg, cg = items_g.get(a2, (0, 0))
+                        ph, ch = items_h.get(a2, (0, 0))
+                        texto += f"  {i:2d} {a2:<14} {pg:>4.1f}% {cg:>3} {ph:>4.1f}% {ch:>3} {p:>4.1f}%\n"
+                ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
+            threading.Thread(target=tarea, daemon=True).start()
+        entry_animal.bind("<Return>", lambda e: buscar())
+        btn_buscar = ttk.Button(frame_bot, text="Buscar", command=buscar)
+        btn_buscar.pack()
 
     def _predecir_siguiente_mh_dialogo(self):
         datos = self._get_datos()
@@ -422,7 +927,8 @@ class LottoPredictorUI:
 
         ventana = tk.Toplevel(self.root)
         ventana.title("Predecir Siguiente - Modelos ML")
-        ventana.geometry("420x340")
+        ventana.geometry("420x420")
+        ventana.minsize(380, 380)
         ventana.transient(self.root)
         ventana.grab_set()
 
@@ -544,12 +1050,7 @@ class LottoPredictorUI:
             btn = ttk.Button(frame_btn, text=texto, command=lambda a=accion: self._modelos_accion(a))
             btn.pack(side=tk.LEFT, padx=2)
 
-        grid = ttk.Frame(tab)
-        grid.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        for c in range(2):
-            grid.columnconfigure(c, weight=1)
-        for r in range(2):
-            grid.rowconfigure(r, weight=1)
+        grid = self._crear_paned_grid(tab)
 
         self._agregar_panel_salida(grid, "Entrenar RF / XGB / Patrones", "ml_entrenamiento", 0, 0)
         self._agregar_panel_salida(grid, "Evaluar con IA", "ml_eval_ia", 0, 1)
@@ -664,12 +1165,7 @@ class LottoPredictorUI:
             btn = ttk.Button(frame_btn, text=texto, command=lambda a=accion: self._scraper_accion(a))
             btn.pack(side=tk.LEFT, padx=2)
 
-        grid = ttk.Frame(tab)
-        grid.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        grid.columnconfigure(0, weight=1)
-        grid.columnconfigure(1, weight=1)
-        grid.rowconfigure(0, weight=1)
-        grid.rowconfigure(1, weight=1)
+        grid = self._crear_paned_grid(tab)
 
         self._agregar_panel_salida(grid, "Scrapear Faltantes", "scraper_faltantes", 0, 0)
         self._agregar_panel_salida(grid, "Scrapear Todas", "scraper_todas", 0, 1)

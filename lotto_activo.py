@@ -62,6 +62,11 @@ analizar_rachas_tempranas = analizador.analizar_rachas_tempranas
 probar_umbrales_rachas = analizador.probar_umbrales_rachas
 prediccion_dia_completo = analizador.prediccion_dia_completo
 top_25_general = analizador.top_25_general
+get_parejas_horarias = analizador.get_parejas_horarias
+get_matriz_global_por_animal = analizador.get_matriz_global_por_animal
+get_matriz_hora_por_animal = analizador.get_matriz_hora_por_animal
+get_matriz_combinada_por_animal = analizador.get_matriz_combinada_por_animal
+get_matriz_segundo_orden = analizador.get_matriz_segundo_orden
 main_menu = analizador.main_menu
 
 if __name__ == "__main__":

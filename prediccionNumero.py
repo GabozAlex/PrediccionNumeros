@@ -157,6 +157,23 @@ def agregar_caracteristicas_avanzadas(datos):
     df['Grupo_Ruleta'] = df['Numero'].apply(grupo_ruleta)
     df['Grupo_Ruleta_Previo'] = df['Grupo_Ruleta'].shift(1)
     
+    # --- Color y Paridad de la ruleta ---
+    def color_numero(num):
+        if num == 0 or num == 37:
+            return 0  # Verde
+        rojos = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
+        return 1 if num in rojos else 2  # 1=Rojo, 2=Negro
+
+    def paridad_numero(num):
+        if num == 0 or num == 37:
+            return 0  # Especial
+        return 1 if num % 2 == 0 else 2  # 1=Par, 2=Impar
+
+    df['Color_Numero'] = df['Numero'].apply(color_numero)
+    df['Color_Previo'] = df['Color_Numero'].shift(1)
+    df['Paridad_Numero'] = df['Numero'].apply(paridad_numero)
+    df['Paridad_Previo'] = df['Paridad_Numero'].shift(1)
+
     # --- PROBABILIDAD HISTÓRICA POR HORA ---
     freq_hora = df.groupby('Solo_hora')['Animal'].value_counts(normalize=True).mul(100).reset_index()
     freq_hora.columns = ['Solo_hora', 'Animal', 'Prob_Hist_Hora']
@@ -166,7 +183,17 @@ def agregar_caracteristicas_avanzadas(datos):
     df['Prob_Hist_Hora'] = df.apply(
         lambda r: prob_hora_map.get((r['Solo_hora'], r['Animal']), 0), axis=1
     )
-    
+
+    # --- PROBABILIDAD HISTÓRICA POR DÍA DE SEMANA ---
+    freq_dia = df.groupby('Dia_Semana')['Animal'].value_counts(normalize=True).mul(100).reset_index()
+    freq_dia.columns = ['Dia_Semana', 'Animal', 'Prob_Hist_Dia']
+    prob_dia_map = {}
+    for _, r in freq_dia.iterrows():
+        prob_dia_map[(r['Dia_Semana'], r['Animal'])] = r['Prob_Hist_Dia']
+    df['Prob_Hist_Dia'] = df.apply(
+        lambda r: prob_dia_map.get((r['Dia_Semana'], r['Animal']), 0), axis=1
+    )
+
     # --- MATRIZ DE TRANSICIÓN MARKOV ---
     from collections import defaultdict
     trans_count = defaultdict(lambda: defaultdict(int))
@@ -205,7 +232,9 @@ def preparar_datos_ml_completo(datos):
         print(f"⚠️  Advertencia: Solo {len(df_ml)} registros válidos. Se recomiendan al menos 50.")
     
     # 2. DEFINIR CARACTERÍSTICAS BÁSICAS + PROBABILIDADES
-    numeric_features = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov']
+    numeric_features = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
+                        'Frecuencia_10', 'Sorteos_Desde_Aparicion',
+                        'Color_Previo', 'Paridad_Previo']
     categorical_features = ['Hora_Sorteo']
     
     # 3. Asegurar que Hora_Sorteo existe
@@ -307,7 +336,9 @@ def predecir_top_k_por_hora(pipeline, le_y, df_ml, k=25):
     if 'Hora_Sorteo' not in df_ml.columns:
         df_ml['Hora_Sorteo'] = df_ml['Hora'].astype(str).str.strip()
     
-    numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov']
+    numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
+                          'Frecuencia_10', 'Sorteos_Desde_Aparicion',
+                          'Color_Previo', 'Paridad_Previo']
     available_numeric = [f for f in numeric_candidates if f in df_ml.columns]
     all_features = available_numeric + ['Hora_Sorteo']
     
@@ -832,7 +863,9 @@ def prediccion_hoy_ensemble(datos, modelo=None, le_y=None, k=25):
         prob_hora.setdefault(hora, {})[animal] = prob
     
     # --- Features disponibles para ML ---
-    numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov']
+    numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
+                          'Frecuencia_10', 'Sorteos_Desde_Aparicion',
+                          'Color_Previo', 'Paridad_Previo']
     available_numeric = [f for f in numeric_candidates if f in df.columns]
     
     animales_validos = list(caracteristicas_animales.keys())
@@ -963,7 +996,9 @@ def evaluar_predicciones_historicas(datos, modelo=None, le_y=None, n_ultimos=30)
     if 'Hora_Sorteo' not in df_eval.columns:
         df_eval['Hora_Sorteo'] = df_eval['Hora'].astype(str).str.strip()
 
-    numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov']
+    numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
+                          'Frecuencia_10', 'Sorteos_Desde_Aparicion',
+                          'Color_Previo', 'Paridad_Previo']
     available_numeric = [f for f in numeric_candidates if f in df_eval.columns]
     animales_validos = list(caracteristicas_animales.keys())
 
@@ -2524,13 +2559,13 @@ def ver_ultimos_registros_y_faltantes(datos):
     for i, animal in enumerate(animales_recientes, 1):
         print(f"   {i:2d}. {animal}")
     
-    # Frecuencia de animales en últimos 50 sorteos
-    ultimos_50 = datos_ordenados.head(50)
-    frecuencia_reciente = ultimos_50['Animal'].value_counts().head(10)
+    # Frecuencia de animales en últimos 84 sorteos
+    ultimos_84 = datos_ordenados.head(84)
+    frecuencia_reciente = ultimos_84['Animal'].value_counts().head(25)
     
-    print(f"\n🏆 TOP 10 ANIMALES MÁS FRECUENTES (últimos 50 sorteos):")
+    print(f"\nTOP 25 ANIMALES MAS FRECUENTES (ultimos 84 sorteos):")
     for animal, conteo in frecuencia_reciente.items():
-        porcentaje = (conteo / len(ultimos_50)) * 100
+        porcentaje = (conteo / len(ultimos_84)) * 100
         print(f"   • {animal}: {conteo} veces ({porcentaje:.1f}%)")
     
     return datos_ordenados.head(25)

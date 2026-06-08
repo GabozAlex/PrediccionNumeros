@@ -147,14 +147,34 @@ class Loteria:
         df['Grupo_Ruleta'] = df['Numero'].apply(grupo_ruleta)
         df['Grupo_Ruleta_Previo'] = df['Grupo_Ruleta'].shift(1)
 
+        # --- Color y Paridad de la ruleta ---
+        def color_numero(num):
+            if num == 0 or num == 37:
+                return 0  # Verde
+            rojos = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
+            return 1 if num in rojos else 2  # 1=Rojo, 2=Negro
+
+        def paridad_numero(num):
+            if num == 0 or num == 37:
+                return 0  # Especial
+            return 1 if num % 2 == 0 else 2  # 1=Par, 2=Impar
+
+        df['Color_Numero'] = df['Numero'].apply(color_numero)
+        df['Color_Previo'] = df['Color_Numero'].shift(1)
+        df['Paridad_Numero'] = df['Numero'].apply(paridad_numero)
+        df['Paridad_Previo'] = df['Paridad_Numero'].shift(1)
+
         from collections import defaultdict, deque
         # Expanding window features (no future leakage)
         hour_animal_cnt = defaultdict(lambda: defaultdict(int))
         hour_total_cnt = defaultdict(int)
+        dia_animal_cnt = defaultdict(lambda: defaultdict(int))
+        dia_total_cnt = defaultdict(int)
         trans_cnt = defaultdict(lambda: defaultdict(int))
         trans_total_cnt = defaultdict(int)
         last_pos = {}
         prob_hora_vals = []
+        prob_dia_vals = []
         prob_trans_vals = []
         freq10_vals = []
         distancia_vals = []
@@ -162,10 +182,14 @@ class Loteria:
         for idx in range(len(df)):
             cur_animal = df.iloc[idx]['Animal']
             cur_hour = df.iloc[idx]['Solo_hora']
+            cur_dia = df.iloc[idx]['Dia_Semana']
             # Update cumulative counts (include current draw)
             hour_animal_cnt[cur_hour][cur_animal] += 1
             hour_total_cnt[cur_hour] += 1
             prob_hora_vals.append(hour_animal_cnt[cur_hour][cur_animal] / hour_total_cnt[cur_hour] * 100)
+            dia_animal_cnt[cur_dia][cur_animal] += 1
+            dia_total_cnt[cur_dia] += 1
+            prob_dia_vals.append(dia_animal_cnt[cur_dia][cur_animal] / dia_total_cnt[cur_dia] * 100)
             if idx > 0:
                 prev = df.iloc[idx-1]['Animal']
                 if df.iloc[idx-1]['Fecha'] == df.iloc[idx]['Fecha']:
@@ -184,6 +208,7 @@ class Loteria:
                 distancia_vals.append(-1)
             last_pos[cur_animal] = idx
         df['Prob_Hist_Hora'] = prob_hora_vals
+        df['Prob_Hist_Dia'] = prob_dia_vals
         df['Prob_Trans_Markov'] = prob_trans_vals
         df['Frecuencia_10'] = freq10_vals
         df['Sorteos_Desde_Aparicion'] = distancia_vals
@@ -215,7 +240,8 @@ class Loteria:
             if before != after:
                 print(f"Filtrados datos desde {min_date}: {before} -> {after} registros (quitados {before-after} historicos)")
         numeric_features = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
-                            'Frecuencia_10', 'Sorteos_Desde_Aparicion']
+                            'Frecuencia_10', 'Sorteos_Desde_Aparicion',
+                            'Color_Previo', 'Paridad_Previo']
         categorical_features = ['Hora_Sorteo']
         if 'Hora_Sorteo' not in df_ml.columns:
             df_ml['Hora_Sorteo'] = df_ml['Hora'].astype(str).str.strip().str.zfill(8)
@@ -286,7 +312,8 @@ class Loteria:
             df_ml['Hora_Sorteo'] = df_ml['Hora'].astype(str).str.strip().str.zfill(8)
         horas_sorteo = sorted(df_ml['Hora_Sorteo'].unique())
         numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
-                              'Frecuencia_10', 'Sorteos_Desde_Aparicion']
+                              'Frecuencia_10', 'Sorteos_Desde_Aparicion',
+                              'Color_Previo', 'Paridad_Previo']
         available_numeric = [f for f in numeric_candidates if f in df_ml.columns]
         all_features = available_numeric + ['Hora_Sorteo']
         print(f"\nGenerando Matriz de Prediccion TOP-{k} de la IA ({len(all_features)} features)...")
@@ -421,13 +448,13 @@ class Loteria:
                 self.logger.warning(f"Fold {fold+1} evaluation failed: {e}")
         tiempo_entrenamiento = datetime.now() - start_time
         avg_accuracy = np.mean(accuracies)
-        avg_top25 = np.mean(top25_accuracies)
+        avg_top28 = np.mean(top25_accuracies)
         print(f"\nRESULTADOS {modelo_nombre}:")
         print(f"   Accuracy Promedio: {avg_accuracy:.2%}")
-        print(f"   Top-25 Accuracy: {avg_top25:.2%}")
+        print(f"   Top-25 Accuracy: {avg_top28:.2%}")
         print(f"   Tiempo entrenamiento: {tiempo_entrenamiento}")
         print(f"   Mejor Fold: {max(accuracies):.2%}")
-        self.logger.info(f"Entrenamiento completado: {avg_accuracy:.2%} accuracy, {avg_top25:.2%} top-25")
+        self.logger.info(f"Entrenamiento completado: {avg_accuracy:.2%} accuracy, {avg_top28:.2%} top-25")
         return modelo_optimizado
 
     def guardar_modelo(self, modelo, le_y, metricas, nombre_modelo):
@@ -673,7 +700,8 @@ class Loteria:
         trans_prob, trans_total = self._transiciones_markov(df)
         prob_hora = self._frecuencias_hora(df, 'Hora')
         numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
-                              'Frecuencia_10', 'Sorteos_Desde_Aparicion']
+                              'Frecuencia_10', 'Sorteos_Desde_Aparicion',
+                              'Color_Previo', 'Paridad_Previo']
         available_numeric = [f for f in numeric_candidates if f in df.columns]
         animales_validos = list(self.animales_carac.keys())
         horas_del_dia = sorted(df['Hora'].unique())
@@ -788,7 +816,8 @@ class Loteria:
         trans_prob, trans_total = self._transiciones_markov(df)
         prob_hora = self._frecuencias_hora(df, 'Hora')
         numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
-                              'Frecuencia_10', 'Sorteos_Desde_Aparicion']
+                              'Frecuencia_10', 'Sorteos_Desde_Aparicion',
+                              'Color_Previo', 'Paridad_Previo']
         available_numeric = [f for f in numeric_candidates if f in df.columns]
         animales_validos = list(self.animales_carac.keys())
         markov_scores = {}
@@ -870,7 +899,8 @@ class Loteria:
         if 'Hora_Sorteo' not in df_eval.columns:
             df_eval['Hora_Sorteo'] = df_eval['Hora'].astype(str).str.strip().str.zfill(8)
         numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
-                              'Frecuencia_10', 'Sorteos_Desde_Aparicion']
+                              'Frecuencia_10', 'Sorteos_Desde_Aparicion',
+                              'Color_Previo', 'Paridad_Previo']
         available_numeric = [f for f in numeric_candidates if f in df_eval.columns]
         animales_validos = list(self.animales_carac.keys())
         trans_prob, trans_total = self._transiciones_markov(df)
@@ -1307,6 +1337,40 @@ class Loteria:
             print(f"\n  {animal:<14} -> Top 10 siguientes:")
             for i, (a, p) in enumerate(top10.items(), 1):
                 print(f"     {i:2d}. {a:<14} ({p:.1f}%)")
+
+    def buscar_en_matriz_markov(self, datos, animal_buscar):
+        print(f"\nBUSQUEDA EN MATRIZ MARKOV: {animal_buscar}")
+        print("=" * 60)
+        animal_buscar = animal_buscar.strip().upper()
+        animales_validos = list(self.animales_carac.keys())
+        if animal_buscar not in animales_validos:
+            print(f"ERROR: '{animal_buscar}' no es un animal valido")
+            return
+        matriz = self.generar_matriz_probabilidad(datos.copy())
+        if animal_buscar in matriz.index:
+            print(f"\nSi sale {animal_buscar:<14} -> Siguientes mas probables:")
+            top = matriz.loc[animal_buscar].sort_values(ascending=False).head(25)
+            top = top[top > 0]
+            for i, (a, p) in enumerate(top.items(), 1):
+                print(f"     {i:2d}. {a:<14} ({p:.1f}%)")
+            print(f"\nTotal de transiciones registradas desde {animal_buscar}: {len(top)}")
+        else:
+            print(f"\nNo hay transiciones registradas desde {animal_buscar}")
+        print(f"\nAnimales que mas frecuentemente preceden a {animal_buscar}:")
+        predecesores = []
+        for animal in matriz.index:
+            if animal_buscar in matriz.columns:
+                prob = matriz.loc[animal, animal_buscar]
+                if prob > 0:
+                    predecesores.append((animal, prob))
+        predecesores.sort(key=lambda x: x[1], reverse=True)
+        if predecesores:
+            for i, (a, p) in enumerate(predecesores[:25], 1):
+                print(f"     {i:2d}. {a:<14} -> {animal_buscar:<14} ({p:.1f}%)")
+        else:
+            print("   (ninguno)")
+        print(f"\nTotal de predecesores registrados: {len(predecesores)}")
+        print(f"\n{'=' * 60}")
 
     def mejor_prediccion_siguiente(self, datos):
         print("\nPrediccion Siguiente en Tiempo Real (TOP-5 Markov)")
@@ -2008,12 +2072,12 @@ class Loteria:
         print(f"Animales en ultimos 20 sorteos ({len(animales_recientes)} unicos):")
         for i, animal in enumerate(animales_recientes, 1):
             print(f"   {i:2d}. {animal}")
-        ultimos_50 = datos_ordenados.head(50)
-        frecuencia_reciente = ultimos_50['Animal'].value_counts().head(10)
-        print(f"\nTOP 10 ANIMALES MAS FRECUENTES (ultimos 50 sorteos):")
-        for animal, conteo in frecuencia_reciente.items():
-            porcentaje = (conteo / len(ultimos_50)) * 100
-            print(f"   * {animal}: {conteo} veces ({porcentaje:.1f}%)")
+        ultimos_84 = datos_ordenados.head(84)
+        frecuencia_reciente = ultimos_84['Animal'].value_counts().head(25)
+        print(f"\nTOP 25 ANIMALES MAS FRECUENTES (ultimos 84 sorteos):")
+        for i, (animal, conteo) in enumerate(frecuencia_reciente.items(), 1):
+            porcentaje = (conteo / len(ultimos_84)) * 100
+            print(f"   {i:2d}. {animal:<10} {conteo:>2} veces ({porcentaje:>5.1f}%)")
         return datos_ordenados.head(25)
 
     def ver_estado_actual_dia(self, datos):
@@ -2189,6 +2253,183 @@ class Loteria:
         for i, (a, p) in enumerate(freq.head(25).items(), 1):
             n = int(p * len(df) / 100)
             print(f"  {i:<3} {a:<12} {p:<7.2f}%  {n:<8}")
+
+    # -----------------------------------------------------------
+    # MATRICES DE MARKOV: GLOBAL y POR HORA
+    # -----------------------------------------------------------
+
+    def get_parejas_horarias(self):
+        """Devuelve las 11 transiciones horarias del dia."""
+        return [
+            ('08:00:00', '09:00:00'), ('09:00:00', '10:00:00'),
+            ('10:00:00', '11:00:00'), ('11:00:00', '12:00:00'),
+            ('12:00:00', '13:00:00'), ('13:00:00', '14:00:00'),
+            ('14:00:00', '15:00:00'), ('15:00:00', '16:00:00'),
+            ('16:00:00', '17:00:00'), ('17:00:00', '18:00:00'),
+            ('18:00:00', '19:00:00'),
+        ]
+
+    def _construir_matrices_markov(self, datos, incluir_trasnocho=False):
+        """Construye y retorna (trans_count_global, total_global, trans_count_hora, total_hora)."""
+        from collections import defaultdict
+        parejas = self.get_parejas_horarias()
+        trans_g = defaultdict(lambda: defaultdict(int))
+        total_g = defaultdict(int)
+        trans_h = {}
+        total_h = {}
+        for p in parejas:
+            trans_h[p] = defaultdict(lambda: defaultdict(int))
+            total_h[p] = defaultdict(int)
+        trasnocho_key = ('19:00:00', '08:00:00')
+        if incluir_trasnocho:
+            trans_h[trasnocho_key] = defaultdict(lambda: defaultdict(int))
+            total_h[trasnocho_key] = defaultdict(int)
+
+        for fecha, df in datos.groupby('Fecha'):
+            df = df.sort_values('Hora')
+            for i in range(1, len(df)):
+                a, b = df.iloc[i-1]['Animal'], df.iloc[i]['Animal']
+                hp, hn = df.iloc[i-1]['Hora'], df.iloc[i]['Hora']
+                trans_g[a][b] += 1
+                total_g[a] += 1
+                if (hp, hn) in trans_h:
+                    trans_h[(hp,hn)][a][b] += 1
+                    total_h[(hp,hn)][a] += 1
+
+        if incluir_trasnocho:
+            fechas = sorted(datos['Fecha'].unique())
+            for f_hoy, f_man in zip(fechas, fechas[1:]):
+                hoy = datos[datos['Fecha'] == f_hoy].sort_values('Hora')
+                man = datos[datos['Fecha'] == f_man].sort_values('Hora')
+                ultimo, primero = hoy.iloc[-1], man.iloc[0]
+                if ultimo['Hora'] == '19:00:00' and primero['Hora'] == '08:00:00':
+                    a, b = ultimo['Animal'], primero['Animal']
+                    trans_g[a][b] += 1
+                    total_g[a] += 1
+                    trans_h[trasnocho_key][a][b] += 1
+                    total_h[trasnocho_key][a] += 1
+
+        return trans_g, total_g, trans_h, total_h
+
+    def _preparar_datos_markov(self, datos):
+        """Asegura que datos tenga las columnas necesarias para construir matrices de Markov."""
+        df = datos.copy()
+        if 'Animal' not in df.columns:
+            raise ValueError("Datos deben tener columna 'Animal'")
+        if 'Fecha' not in df.columns:
+            if 'Timestamp' in df.columns:
+                df['Fecha'] = pd.to_datetime(df['Timestamp']).dt.date
+            else:
+                raise ValueError("Datos deben tener columna 'Fecha' o 'Timestamp'")
+        if 'Hora' not in df.columns:
+            if 'Timestamp' in df.columns:
+                df['Hora'] = df['Timestamp'].dt.strftime('%H:%M:%S')
+            else:
+                raise ValueError("Datos deben tener columna 'Hora' o 'Timestamp'")
+        if df['Animal'].dtype != object:
+            df['Animal'] = df['Animal'].astype(str).str.strip().str.upper()
+        df['Hora'] = df['Hora'].astype(str).str.strip().str.zfill(8)
+        return df
+
+    def get_matriz_global_por_animal(self, datos, top_k=25, incluir_trasnocho=False):
+        """
+        Retorna dict[animal] = [(siguiente, prob %, muestras), ...] top_k de la matriz global.
+        """
+        datos = self._preparar_datos_markov(datos)
+        trans_g, total_g, _, _ = self._construir_matrices_markov(datos, incluir_trasnocho=incluir_trasnocho)
+        resultado = {}
+        for animal in sorted(self.animales_carac.keys()):
+            if animal not in total_g or total_g[animal] == 0:
+                resultado[animal] = []
+                continue
+            total = total_g[animal]
+            scores = [(a2, cnt / total * 100, cnt) for a2, cnt in trans_g[animal].items()]
+            scores.sort(key=lambda x: -x[1])
+            resultado[animal] = scores[:top_k]
+        return resultado
+
+    def get_matriz_hora_por_animal(self, datos, hora_origen, hora_destino, top_k=25, incluir_trasnocho=False):
+        """
+        Retorna dict[animal] = [(siguiente, prob %, muestras), ...] top_k para una transicion horaria.
+        """
+        _, _, trans_h, total_h = self._construir_matrices_markov(datos, incluir_trasnocho=incluir_trasnocho)
+        pareja = (hora_origen, hora_destino)
+        resultado = {}
+        for animal in sorted(self.animales_carac.keys()):
+            if animal not in total_h.get(pareja, {}) or total_h[pareja][animal] == 0:
+                resultado[animal] = []
+                continue
+            total = total_h[pareja][animal]
+            scores = [(a2, cnt / total * 100, cnt) for a2, cnt in trans_h[pareja][animal].items()]
+            scores.sort(key=lambda x: -x[1])
+            resultado[animal] = scores[:top_k]
+        return resultado
+
+    def get_matriz_segundo_orden(self, datos, animal1, animal2, top_k=25):
+        """
+        Retorna [(siguiente, prob %, muestras)] top_k usando Markov de 2do orden:
+        dados dos animales previos consecutivos, predecir el siguiente.
+        Cuenta pares (prev1, prev2) -> siguiente en sorteos consecutivos del mismo dia.
+        """
+        from collections import defaultdict
+        datos = self._preparar_datos_markov(datos)
+        trans2 = defaultdict(lambda: defaultdict(int))
+        total2 = defaultdict(int)
+        for fecha, df in datos.groupby('Fecha'):
+            df = df.sort_values('Hora')
+            for i in range(2, len(df)):
+                a1, a2, a3 = df.iloc[i-2]['Animal'], df.iloc[i-1]['Animal'], df.iloc[i]['Animal']
+                par = (a1, a2)
+                trans2[par][a3] += 1
+                total2[par] += 1
+        par = (animal1.upper().strip(), animal2.upper().strip())
+        if par not in total2 or total2[par] == 0:
+            return []
+        total = total2[par]
+        scores = [(a3, cnt / total * 100, cnt) for a3, cnt in trans2[par].items()]
+        scores.sort(key=lambda x: -x[1])
+        return scores[:top_k]
+
+    def get_matriz_combinada_por_animal(self, datos, hora_origen, hora_destino, top_k=25, incluir_trasnocho=False):
+        """
+        Retorna dict[animal] = [(siguiente, prob combinada %), ...]
+        combinando matriz global y por hora con peso variable.
+        """
+        trans_g, total_g, trans_h, total_h = self._construir_matrices_markov(datos, incluir_trasnocho=incluir_trasnocho)
+        pareja = (hora_origen, hora_destino)
+        resultado = {}
+        for animal in sorted(self.animales_carac.keys()):
+            # Scores globales
+            g_scores = {}
+            if animal in total_g and total_g[animal] > 0:
+                t = total_g[animal]
+                g_scores = {a2: cnt / t * 100 for a2, cnt in trans_g[animal].items()}
+
+            # Scores por hora
+            h_scores = {}
+            if animal in total_h.get(pareja, {}) and total_h[pareja][animal] > 0:
+                t = total_h[pareja][animal]
+                h_scores = {a2: cnt / t * 100 for a2, cnt in trans_h[pareja][animal].items()}
+
+            if not g_scores and not h_scores:
+                resultado[animal] = []
+                continue
+
+            # Peso variable: mas peso a hora si hay suficientes muestras
+            muestras_hora = total_h.get(pareja, {}).get(animal, 0)
+            w_h = min(0.9, max(0.1, muestras_hora / 50))
+            w_g = 1 - w_h
+
+            todos = set(g_scores.keys()) | set(h_scores.keys())
+            combinados = {}
+            for a2 in todos:
+                pg = g_scores.get(a2, 0)
+                ph = h_scores.get(a2, 0)
+                combinados[a2] = pg * w_g + ph * w_h
+
+            sorted_items = sorted(combinados.items(), key=lambda x: -x[1])
+            resultado[animal] = sorted_items[:top_k]
+        return resultado
 
     def main_menu(self, datos):
         opciones = [
