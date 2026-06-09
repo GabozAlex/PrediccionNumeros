@@ -17,6 +17,17 @@ ANIMALES_38 = [
     "LAPA", "ARDILLA", "PESCADO", "VENADO", "JIRAFA", "CULEBRA"
 ]
 
+ANIMAL_A_NUM_INT = {"DELFIN": 0}
+_idx = 1
+for _a in ANIMALES_38:
+    if _a in ("DELFIN", "BALLENA"):
+        continue
+    ANIMAL_A_NUM_INT[_a] = _idx
+    _idx += 1
+ANIMAL_A_NUM_INT["BALLENA"] = 37
+
+NUM_INT_A_ANIMAL = {v: k for k, v in ANIMAL_A_NUM_INT.items()}
+
 GRUPOS_ANIMALES = {
     "MAMIFERO": {"TORO","LEON","TIGRE","GATO","CABALLO","MONO","ZORRO","OSO","BURRO","CHIVO","COCHINO","CAMELLO","CEBRA","VACA","PERRO","ELEFANTE","VENADO","JIRAFA","RATON","CARNERO","LAPA","ARDILLA"},
     "AVE":      {"PERICO","AGUILA","PALOMA","PAVO","GALLO","GALLINA","ZAMURO"},
@@ -182,6 +193,12 @@ def load_and_prepare_data(excel_file, analizador):
     datos = datos.dropna(subset=['Timestamp']).reset_index(drop=True)
     datos['Solo_hora'] = datos['Timestamp'].dt.strftime('%I:%M %p').str.strip()
     datos = datos.sort_values(by='Timestamp').reset_index(drop=True)
+    datos['Num_Int'] = datos['Animal'].map(ANIMAL_A_NUM_INT)
+    if datos['Num_Int'].isna().sum() > 0:
+        animales_sin_mapeo = datos.loc[datos['Num_Int'].isna(), 'Animal'].unique()
+        print(f"  {len(animales_sin_mapeo)} animales sin mapeo interno: {animales_sin_mapeo}")
+        datos = datos.dropna(subset=['Num_Int']).reset_index(drop=True)
+    datos['Num_Int'] = datos['Num_Int'].astype(int)
     datos = analizador.agregar_caracteristicas_avanzadas(datos)
 
     print(f"\nRESUMEN DE DATOS:")

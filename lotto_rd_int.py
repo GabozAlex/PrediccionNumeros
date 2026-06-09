@@ -66,6 +66,11 @@ get_parejas_horarias = analizador.get_parejas_horarias
 get_matriz_global_por_animal = analizador.get_matriz_global_por_animal
 get_matriz_hora_por_animal = analizador.get_matriz_hora_por_animal
 get_matriz_segundo_orden = analizador.get_matriz_segundo_orden
+get_matriz_global = analizador.get_matriz_global
+get_matriz_hora = analizador.get_matriz_hora
+get_prediccion_combinada = analizador.get_prediccion_combinada
+num_int_a_animal = analizador.num_int_a_animal
+animal_a_num_int = analizador.animal_a_num_int
 main_menu = analizador.main_menu
 
 if __name__ == "__main__":

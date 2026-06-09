@@ -332,8 +332,8 @@ class LottoPredictorUI:
                 for i in range(len(test)-1):
                     if test.iloc[i]['Fecha'] != test.iloc[i+1]['Fecha']:
                         continue
-                    ant, hp = test.iloc[i]['Animal'], test.iloc[i]['Hora']
-                    sig, hn = test.iloc[i+1]['Animal'], test.iloc[i+1]['Hora']
+                    ant, hp = test.iloc[i]['Num_Int'], test.iloc[i]['Hora']
+                    sig, hn = test.iloc[i+1]['Num_Int'], test.iloc[i+1]['Hora']
                     par = (hp, hn)
                     total += 1
                     g_ok = ant in tot and tot[ant] > 0 and sig in [a for a,c in sorted(tg[ant].items(), key=lambda x:-x[1])[:k]]
@@ -363,11 +363,11 @@ class LottoPredictorUI:
         if not analizador:
             return
         ventana = tk.Toplevel(self.root)
-        ventana.title(f"Precision x Animal - {self.current_lottery}")
+        ventana.title(f"Precision x Numero - {self.current_lottery}")
         ventana.geometry("700x600")
         txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
         txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        txt.insert(tk.END, "Evaluando precision por animal...\n")
+        txt.insert(tk.END, "Evaluando precision por numero...\n")
         def tarea():
             import pandas as pd
             d = datos.copy().sort_values(['Fecha','Hora']).reset_index(drop=True)
@@ -382,8 +382,8 @@ class LottoPredictorUI:
             for i in range(len(test)-1):
                 if test.iloc[i]['Fecha'] != test.iloc[i+1]['Fecha']:
                     continue
-                ant, hp = test.iloc[i]['Animal'], test.iloc[i]['Hora']
-                sig = test.iloc[i+1]['Animal']
+                ant, hp = test.iloc[i]['Num_Int'], test.iloc[i]['Hora']
+                sig = test.iloc[i+1]['Num_Int']
                 if ant not in total_animal:
                     total_animal[ant] = 0
                     ac_g[ant] = 0
@@ -394,15 +394,17 @@ class LottoPredictorUI:
                         ac_g[ant] += 1
             # Sort by worst accuracy first
             ranking = sorted([(a, ac_g.get(a,0)/total_animal[a]*100 if total_animal[a] else 0, total_animal[a]) for a in total_animal], key=lambda x: x[1])
-            texto = f"Precision Global Top-25 por Animal (ultimos 1000 sorteos)\n"
+            a2an = analizador.num_int_a_animal
+            texto = f"Precision Global Top-25 por Numero (ultimos 1000 sorteos)\n"
             texto += "=" * 60 + "\n\n"
-            texto += f"{'Animal':<14} {'Aciertos':>8} {'Total':>6} {'%':>6}\n"
+            texto += f"{'Num(Animal)':<15} {'Aciertos':>8} {'Total':>6} {'%':>6}\n"
             texto += '-' * 40 + '\n'
             for a, pct, tot in ranking:
                 barra = '#' * max(1, int(pct/4))
-                texto += f"  {a:<14} {ac_g[a]:>3}/{total_animal[a]:<2} {pct:>5.1f}% {barra}\n"
-            texto += f"\nPeores 5: {', '.join(a for a,_,_ in ranking[:5])}"
-            texto += f"\nMejores 5: {', '.join(a for a,_,_ in ranking[-5:])}"
+                animal = a2an.get(a, '?')
+                texto += f"  {a:>2}({animal:<10}) {ac_g[a]:>3}/{total_animal[a]:<2} {pct:>5.1f}% {barra}\n"
+            texto += f"\nPeores 5: {', '.join(str(a)+'('+a2an.get(a, '?')+')' for a,_,_ in ranking[:5])}"
+            texto += f"\nMejores 5: {', '.join(str(a)+'('+a2an.get(a, '?')+')' for a,_,_ in ranking[-5:])}"
             ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
         threading.Thread(target=tarea, daemon=True).start()
 
@@ -419,10 +421,10 @@ class LottoPredictorUI:
         ventana.geometry("750x650")
         frame_top = ttk.Frame(ventana)
         frame_top.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Label(frame_top, text="Animal:", font=("", 10)).pack(side=tk.LEFT, padx=2)
-        entry_animal = ttk.Entry(frame_top, width=14, font=("", 10))
-        entry_animal.pack(side=tk.LEFT, padx=2)
-        entry_animal.focus_set()
+        ttk.Label(frame_top, text="Numero (0-37):", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry_numero = ttk.Entry(frame_top, width=14, font=("", 10))
+        entry_numero.pack(side=tk.LEFT, padx=2)
+        entry_numero.focus_set()
         ttk.Label(frame_top, text="Desde:", font=("", 10)).pack(side=tk.LEFT, padx=2)
         entry_desde = ttk.Entry(frame_top, width=12, font=("", 10))
         entry_desde.pack(side=tk.LEFT, padx=2)
@@ -434,13 +436,20 @@ class LottoPredictorUI:
         txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
         txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         def analizar():
-            animal = entry_animal.get().strip().upper()
             desde = entry_desde.get().strip()
             hasta = entry_hasta.get().strip()
-            if not animal or not desde or not hasta:
+            if not desde or not hasta:
                 return
+            try:
+                n = int(entry_numero.get().strip())
+                if n < 0 or n > 37:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror("Error", "Ingrese un numero entre 0 y 37")
+                return
+            animal = analizador.num_int_a_animal.get(n, '')
             txt.delete("1.0", tk.END)
-            txt.insert(tk.END, f"Analizando {animal} del {desde} al {hasta}...\n")
+            txt.insert(tk.END, f"Analizando {n}({animal}) del {desde} al {hasta}...\n")
             def tarea():
                 import pandas as pd
                 d = datos.copy()
@@ -453,41 +462,43 @@ class LottoPredictorUI:
                 sub = d[(d['Fecha'] >= desde_dt) & (d['Fecha'] <= hasta_dt)].copy()
                 hits = 0
                 total = 0
-                texto = f"Backtesting: {animal} del {desde} al {hasta}\n"
+                texto = f"Backtesting: {n}({animal}) del {desde} al {hasta}\n"
                 texto += "=" * 70 + "\n\n"
                 for i in range(len(sub)-1):
-                    if sub.iloc[i]['Animal'] != animal:
+                    if sub.iloc[i]['Num_Int'] != n:
                         continue
                     if sub.iloc[i]['Fecha'] == sub.iloc[i+1]['Fecha']:
                         total += 1
                         f = sub.iloc[i]['Fecha']
                         h = sub.iloc[i]['Hora']
-                        sig = sub.iloc[i+1]['Animal']
+                        sig = sub.iloc[i+1]['Num_Int']
                         preds = []
-                        if animal in tot and tot[animal] > 0:
-                            preds = [a for a,c in sorted(tg[animal].items(), key=lambda x:-x[1])[:25]]
+                        if n in tot and tot[n] > 0:
+                            preds = [a for a,c in sorted(tg[n].items(), key=lambda x:-x[1])[:25]]
                         rank = preds.index(sig) + 1 if sig in preds else 0
                         if rank:
                             hits += 1
                             marca = "✅"
                         else:
                             marca = "❌"
-                        texto += f"  {f} {h}  {animal:<12} -> {sig:<12}  puesto #{rank if rank else '—'}{'  ' + marca if rank else ''}\n"
+                        sig_animal = analizador.num_int_a_animal.get(sig, '?')
+                        texto += f"  {f} {h}  {n:>2}({animal:<10}) -> {sig:>2}({sig_animal:<10})  puesto #{rank if rank else '—'}{'  ' + marca if rank else ''}\n"
                 if total:
                     texto += f"\nResumen: {hits}/{total} aciertos ({hits/total*100:.1f}%) en Top-25\n"
                 else:
-                    texto += "\nNo se encontraron ocurrencias de este animal en el rango\n"
+                    texto += "\nNo se encontraron ocurrencias de este numero en el rango\n"
                 # Show top predictions for reference
                 preds_list = []
-                if animal in tot and tot[animal] > 0:
-                    preds_list = [(a, c/tot[animal]*100) for a,c in sorted(tg[animal].items(), key=lambda x:-x[1])[:25]]
-                texto += f"\nTop-25 predictivo para {animal}:\n"
+                if n in tot and tot[n] > 0:
+                    preds_list = [(a, c/tot[n]*100) for a,c in sorted(tg[n].items(), key=lambda x:-x[1])[:25]]
+                texto += f"\nTop-25 predictivo para {n}({animal}):\n"
                 texto += '-' * 40 + '\n'
                 for i, (a, p) in enumerate(preds_list, 1):
-                    texto += f"  {i:2d}. {a:<14} ({p:.1f}%)\n"
+                    a_animal = analizador.num_int_a_animal.get(a, '?')
+                    texto += f"  {i:2d}. {a:>2}({a_animal:<10}) ({p:.1f}%)\n"
                 ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
             threading.Thread(target=tarea, daemon=True).start()
-        entry_animal.bind("<Return>", lambda e: analizar())
+        entry_numero.bind("<Return>", lambda e: analizar())
         ttk.Button(frame_top, text="Analizar", command=analizar).pack(side=tk.LEFT, padx=5)
 
     def _dialogo_cadena(self):
@@ -568,20 +579,26 @@ class LottoPredictorUI:
         ventana.geometry("550x520")
         frame_top = ttk.Frame(ventana)
         frame_top.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Label(frame_top, text="Animal previo 1:", font=("", 10)).pack(side=tk.LEFT, padx=2)
-        entry1 = ttk.Entry(frame_top, width=12, font=("", 10))
+        ttk.Label(frame_top, text="Numero previo 1 (0-37):", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry1 = ttk.Entry(frame_top, width=5, font=("", 10))
         entry1.pack(side=tk.LEFT, padx=2)
-        ttk.Label(frame_top, text="Animal previo 2:", font=("", 10)).pack(side=tk.LEFT, padx=2)
-        entry2 = ttk.Entry(frame_top, width=12, font=("", 10))
+        ttk.Label(frame_top, text="Numero previo 2 (0-37):", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry2 = ttk.Entry(frame_top, width=5, font=("", 10))
         entry2.pack(side=tk.LEFT, padx=2)
         entry2.focus_set()
         txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
         txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         def buscar():
-            a1 = entry1.get().strip().upper()
-            a2 = entry2.get().strip().upper()
-            if not a1 or not a2:
-                messagebox.showwarning("Error", "Ingresa ambos animales")
+            n1_str = entry1.get().strip()
+            n2_str = entry2.get().strip()
+            if not n1_str.isdigit() or not n2_str.isdigit() or not (0 <= int(n1_str) <= 37) or not (0 <= int(n2_str) <= 37):
+                messagebox.showwarning("Error", "Ingresa dos numeros validos (0-37)")
+                return
+            n1, n2 = int(n1_str), int(n2_str)
+            a1 = analizador.num_int_a_animal.get(n1, None)
+            a2 = analizador.num_int_a_animal.get(n2, None)
+            if a1 is None or a2 is None:
+                messagebox.showwarning("Error", f"Numero(s) no validos")
                 return
             txt.delete("1.0", tk.END)
             txt.insert(tk.END, f"Buscando siguientes de ({a1}, {a2})...\n")
@@ -589,12 +606,12 @@ class LottoPredictorUI:
                 items = analizador.get_matriz_segundo_orden(datos.copy(), a1, a2, top_k=25)
                 total_m = sum(c for _, _, c in items)
                 texto = f"Animales previos: {a1} -> {a2}  |  total pares: {total_m}\n\n"
-                texto += f"{'#':>3} {'Animal':<14} {'%':>5} {'Muestras':>8}\n"
-                texto += "-" * 35 + "\n"
+                texto += f"{'#':>3} {'Num(Animal)':<18} {'%':>5} {'Muestras':>8}\n"
+                texto += "-" * 40 + "\n"
                 if not items:
                     texto += "(sin datos para este par)\n"
                 for i, (a3, p, c) in enumerate(items, 1):
-                    texto += f"  {i:2d} {a3:<14} {p:>4.1f}% {c:>8}\n"
+                    texto += f"  {i:2d} {a3:>2} ({self.analizador.num_int_a_animal.get(a3, '?'):<14}) {p:>4.1f}% {c:>8}\n"
                 ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
             threading.Thread(target=tarea, daemon=True).start()
         entry1.bind("<Return>", lambda e: entry2.focus_set())
@@ -649,12 +666,12 @@ class LottoPredictorUI:
         if not analizador:
             return
         ventana = tk.Toplevel(self.root)
-        ventana.title("Markov - Buscar Animal")
-        ventana.geometry("550x520")
+        ventana.title("Markov - Buscar Numero")
+        ventana.geometry("600x520")
         frame_top = ttk.Frame(ventana)
         frame_top.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Label(frame_top, text="Animal actual:", font=("", 10)).pack(side=tk.LEFT, padx=2)
-        entry = ttk.Entry(frame_top, width=20, font=("", 10))
+        ttk.Label(frame_top, text="Numero (0-37):", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry = ttk.Entry(frame_top, width=8, font=("", 10))
         entry.pack(side=tk.LEFT, padx=2)
         entry.focus_set()
         trasnocho_var = tk.BooleanVar(value=False)
@@ -662,9 +679,14 @@ class LottoPredictorUI:
         txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
         txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         def buscar():
-            animal = entry.get().strip().upper()
-            if not animal:
-                messagebox.showwarning("Error", "Ingresa un animal")
+            n_str = entry.get().strip()
+            if not n_str.isdigit() or not (0 <= int(n_str) <= 37):
+                messagebox.showwarning("Error", "Ingresa un numero valido (0-37)")
+                return
+            n = int(n_str)
+            animal = analizador.num_int_a_animal.get(n, None)
+            if animal is None:
+                messagebox.showwarning("Error", f"Numero {n} no valido")
                 return
             txt.delete("1.0", tk.END)
             txt.insert(tk.END, f"Buscando siguientes de {animal}...\n")
@@ -676,12 +698,12 @@ class LottoPredictorUI:
                 if trasnocho_var.get():
                     texto += " (con trasnocho 7PM→8AM)"
                 texto += f"\n\nTop siguientes:\n"
-                texto += f"{'#':>3} {'Animal':<14} {'%':>5} {'Muestras':>8}\n"
-                texto += "-" * 35 + "\n"
+                texto += f"{'#':>3} {'Num(Animal)':<18} {'%':>5} {'Muestras':>8}\n"
+                texto += "-" * 42 + "\n"
                 if not items:
                     texto += "(sin datos para este animal)\n"
                 for i, (a2, p, c) in enumerate(items, 1):
-                    texto += f"  {i:2d} {a2:<14} {p:>4.1f}% {c:>8}\n"
+                    texto += f"  {i:2d} {a2:>2} ({self.analizador.num_int_a_animal.get(a2, '?'):<14}) {p:>4.1f}% {c:>8}\n"
                 ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
             threading.Thread(target=tarea, daemon=True).start()
         entry.bind("<Return>", lambda e: buscar())
@@ -691,6 +713,9 @@ class LottoPredictorUI:
         datos = self._get_datos()
         if datos is None or datos.empty:
             messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
             return
         ventana = tk.Toplevel(self.root)
         ventana.title("Probabilidad por Hora")
@@ -721,10 +746,11 @@ class LottoPredictorUI:
                 total = len(d_filtro)
                 conteo = d_filtro["Animal"].value_counts()
                 texto = f"Probabilidades para {hora_str} (total: {total} sorteos)\n"
-                texto += "=" * 50 + "\n"
+                texto += "=" * 60 + "\n"
                 for animal, cnt in conteo.head(25).items():
+                    num = analizador.animal_a_num_int.get(animal, '?')
                     pct = cnt / total * 100
-                    texto += f"  {animal:<14} {cnt:4d} ({pct:.1f}%)\n"
+                    texto += f"  {num:>2} ({animal:<14}) {cnt:4d} ({pct:.1f}%)\n"
                 ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
             threading.Thread(target=tarea, daemon=True).start()
         combo.bind("<<ComboboxSelected>>", lambda e: buscar())
@@ -814,8 +840,8 @@ class LottoPredictorUI:
         ventana.geometry("600x520")
         frame_top = ttk.Frame(ventana)
         frame_top.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Label(frame_top, text="Animal:", font=("", 10)).pack(side=tk.LEFT, padx=2)
-        entry_animal = ttk.Entry(frame_top, width=14, font=("", 10))
+        ttk.Label(frame_top, text="Numero (0-37):", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry_animal = ttk.Entry(frame_top, width=8, font=("", 10))
         entry_animal.pack(side=tk.LEFT, padx=2)
         entry_animal.focus_set()
         trasnocho_var = tk.BooleanVar(value=False)
@@ -826,14 +852,19 @@ class LottoPredictorUI:
         combo.set(opciones[-1])
         txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
         txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        txt.insert(tk.END, "Selecciona animal y hora, luego clic en Buscar\n")
+        txt.insert(tk.END, "Selecciona numero y hora, luego clic en Buscar\n")
         frame_bot = ttk.Frame(ventana)
         frame_bot.pack(fill=tk.X, padx=5, pady=5)
         def buscar():
-            animal = entry_animal.get().strip().upper()
+            n_str = entry_animal.get().strip()
             seleccion = combo.get()
-            if not animal or not seleccion:
-                messagebox.showwarning("Error", "Ingresa animal y selecciona hora")
+            if not n_str.isdigit() or not (0 <= int(n_str) <= 37) or not seleccion:
+                messagebox.showwarning("Error", "Ingresa un numero valido (0-37) y selecciona hora")
+                return
+            n = int(n_str)
+            animal = analizador.num_int_a_animal.get(n, None)
+            if animal is None:
+                messagebox.showwarning("Error", f"Numero {n} no valido")
                 return
             partes = seleccion.split(" -> ")
             h_o, h_d = partes[0].strip(), partes[1].strip()
@@ -861,12 +892,12 @@ class LottoPredictorUI:
                 else:
                     combinado = {a: items_g.get(a, (0,0))[0]*w_g + items_h.get(a, (0,0))[0]*w_h for a in todos}
                     top = sorted(combinado.items(), key=lambda x: -x[1])[:25]
-                    texto += f"{'#':>3} {'Animal':<14} {'Gral':>5} {'(n)':>4} {'Hora':>5} {'(n)':>4} {'Comb':>5}\n"
-                    texto += '-' * 45 + '\n'
+                    texto += f"{'#':>3} {'Num(Animal)':<18} {'Gral':>5} {'(n)':>4} {'Hora':>5} {'(n)':>4} {'Comb':>5}\n"
+                    texto += '-' * 52 + '\n'
                     for i, (a2, p) in enumerate(top, 1):
                         pg, cg = items_g.get(a2, (0, 0))
                         ph, ch = items_h.get(a2, (0, 0))
-                        texto += f"  {i:2d} {a2:<14} {pg:>4.1f}% {cg:>3} {ph:>4.1f}% {ch:>3} {p:>4.1f}%\n"
+                        texto += f"  {i:2d} {a2:>2} ({self.analizador.num_int_a_animal.get(a2, '?'):<14}) {pg:>4.1f}% {cg:>3} {ph:>4.1f}% {ch:>3} {p:>4.1f}%\n"
                 ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
             threading.Thread(target=tarea, daemon=True).start()
         entry_animal.bind("<Return>", lambda e: buscar())
@@ -883,11 +914,11 @@ class LottoPredictorUI:
         ventana.geometry("380x270")
         ventana.transient(self.root)
         ventana.grab_set()
-        ttk.Label(ventana, text="Animal que acaba de salir:", font=("", 10)).pack(pady=(15, 3))
-        entry_animal = ttk.Entry(ventana, width=25, font=("", 10))
+        ttk.Label(ventana, text="Numero que acaba de salir (0-37):", font=("", 10)).pack(pady=(15, 3))
+        entry_animal = ttk.Entry(ventana, width=8, font=("", 10))
         entry_animal.pack(pady=3)
         entry_animal.focus_set()
-        ttk.Label(ventana, text="Hora del sorteo (HH:MM AM/PM):", font=("", 10)).pack(pady=(12, 3))
+        ttk.Label(ventana, text="Hora del sorteo (HH:MM AM/PM):", font=("", 10)).pack(pady=(12, 5))
         horas_opciones = ["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM",
                           "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM",
                           "04:00 PM", "05:00 PM", "06:00 PM", "07:00 PM"]
@@ -895,22 +926,23 @@ class LottoPredictorUI:
         combo_hora.pack(pady=3)
         combo_hora.set(horas_opciones[-1])
         def ejecutar():
-            animal = entry_animal.get().strip().upper()
+            n_str = entry_animal.get().strip()
             hora = combo_hora.get().strip()
-            if not animal:
-                messagebox.showwarning("Error", "Debes ingresar un animal")
+            if not n_str.isdigit() or not (0 <= int(n_str) <= 37):
+                messagebox.showwarning("Error", "Debes ingresar un numero valido (0-37)")
                 return
+            n = int(n_str)
             if not hora:
                 messagebox.showwarning("Error", "Debes seleccionar una hora")
                 return
             ventana.destroy()
             hilo = threading.Thread(
-                target=self._predecir_siguiente_mh_task, args=(animal, hora), daemon=True
+                target=self._predecir_siguiente_mh_task, args=(n, hora), daemon=True
             )
             hilo.start()
         ttk.Button(ventana, text="Predecir", command=ejecutar).pack(pady=15)
 
-    def _predecir_siguiente_mh_task(self, animal, hora_str):
+    def _predecir_siguiente_mh_task(self, n, hora_str):
         panel = self._paneles.get("pred_sig_mh")
         if panel is None:
             return
@@ -925,9 +957,12 @@ class LottoPredictorUI:
             if not analizador:
                 return
             d = datos.copy()
-            if animal not in analizador.animales_carac:
-                animales_ok = ", ".join(sorted(analizador.animales_carac.keys()))
-                print(f"ERROR: Animal '{animal}' no valido. Validos: {animales_ok}")
+            if n < 0 or n > 37:
+                print(f"ERROR: Numero '{n}' fuera de rango (0-37)")
+                return
+            animal = analizador.num_int_a_animal.get(n, None)
+            if animal is None:
+                print(f"ERROR: Numero '{n}' no tiene animal asociado")
                 return
             # Convert 12h hour to 24h format
             try:
@@ -939,7 +974,7 @@ class LottoPredictorUI:
                 return
             # Override the last row with the user's animal and hour
             d.iloc[-1, d.columns.get_loc('Animal')] = animal
-            d.iloc[-1, d.columns.get_loc('Numero')] = 0
+            d.iloc[-1, d.columns.get_loc('Numero')] = n
             d.iloc[-1, d.columns.get_loc('Hora')] = hora_24h
             d.iloc[-1, d.columns.get_loc('Solo_hora')] = solo_hora
             analizador.prediccion_markov_hora(d)
