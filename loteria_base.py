@@ -1328,6 +1328,111 @@ class Loteria:
             print(f"  {par[0]:<14} + {par[1]:<14} -> {cnt} dias")
         print(f"\n{'='*70}\n")
 
+    def analizar_coocurrencias(self, datos, top_k=25):
+        from collections import Counter
+        from itertools import combinations
+        df = datos.copy()
+        print(f"\n{'='*70}")
+        print(f"  CO-OCURRENCIAS EN EL MISMO DIA")
+        print(f"{'='*70}")
+        fechas_completas = df.groupby('Fecha').size()
+        fechas_completas = fechas_completas[fechas_completas == 12]
+        df_full = df[df['Fecha'].isin(fechas_completas.index)]
+        n_dias = len(fechas_completas)
+        print(f"  Basado en {n_dias} dias con 12 sorteos completos\n")
+
+        pares_dia = Counter()
+        tripletas_dia = Counter()
+        for fecha, grupo in df_full.groupby('Fecha'):
+            animales = sorted(grupo['Animal'].unique())
+            for combo in combinations(animales, 2):
+                pares_dia[combo] += 1
+            for combo in combinations(animales, 3):
+                tripletas_dia[combo] += 1
+
+        print(f"  PARES MAS FRECUENTES (Top-{top_k})")
+        print(f"  {'#':>3} {'Par':<35} {'Dias':>5} {'%':>6}")
+        print(f"  {'-'*50}")
+        for i, (par, cnt) in enumerate(pares_dia.most_common(top_k), 1):
+            str_ = f"{par[0]} + {par[1]}"
+            print(f"  {i:3d} {str_:<35} {cnt:5d} {cnt/n_dias*100:5.1f}%")
+
+        print(f"\n  TRIPLETAS MAS FRECUENTES (Top-{top_k})")
+        print(f"  {'#':>3} {'Tripleta':<50} {'Dias':>5} {'%':>6}")
+        print(f"  {'-'*65}")
+        for i, (tri, cnt) in enumerate(tripletas_dia.most_common(top_k), 1):
+            str_ = f"{tri[0]} + {tri[1]} + {tri[2]}"
+            print(f"  {i:3d} {str_:<50} {cnt:5d} {cnt/n_dias*100:5.1f}%")
+
+        print(f"\n{'='*70}\n")
+
+    def analizar_coocurrencias_por_rango(self, datos, top_k=25):
+        from collections import Counter
+        from itertools import combinations
+        df = datos.copy()
+        print(f"\n{'='*70}")
+        print(f"  CO-OCURRENCIAS POR RANGO HORARIO")
+        print(f"{'='*70}")
+
+        def asignar_rango(hora):
+            h = int(hora.split(':')[0])
+            return 'MANANA' if h < 14 else 'TARDE'
+
+        df['Rango'] = df['Hora'].apply(asignar_rango)
+        fechas_completas = df.groupby('Fecha').size()
+        fechas_completas = fechas_completas[fechas_completas == 12].index
+        df_full = df[df['Fecha'].isin(fechas_completas)]
+        n_dias = len(fechas_completas)
+        print(f"  Basado en {n_dias} dias con 12 sorteos completos\n")
+
+        for rango in ['MANANA', 'TARDE']:
+            pares = Counter()
+            for fecha, grupo in df_full[df_full['Rango'] == rango].groupby('Fecha'):
+                animales = sorted(grupo['Animal'].unique())
+                for combo in combinations(animales, 2):
+                    pares[combo] += 1
+            print(f"  --- {rango} (6 sorteos) ---")
+            print(f"  {'#':>3} {'Par':<35} {'Dias':>5} {'%':>6}")
+            print(f"  {'-'*50}")
+            for i, (par, cnt) in enumerate(pares.most_common(top_k), 1):
+                str_ = f"{par[0]} + {par[1]}"
+                print(f"  {i:3d} {str_:<35} {cnt:5d} {cnt/n_dias*100:5.1f}%")
+            print()
+
+        print(f"\n{'='*70}\n")
+
+    def analizar_frecuencia_por_dia_semana(self, datos, top_k=15):
+        from collections import Counter
+        df = datos.copy()
+        print(f"\n{'='*70}")
+        print(f"  FRECUENCIA POR DIA DE LA SEMANA")
+        print(f"{'='*70}")
+        df['DiaSemana'] = pd.to_datetime(df['Fecha']).dt.day_name()
+        dias_es = {'Monday': 'LUNES', 'Tuesday': 'MARTES', 'Wednesday': 'MIERCOLES',
+                   'Thursday': 'JUEVES', 'Friday': 'VIERNES', 'Saturday': 'SABADO',
+                   'Sunday': 'DOMINGO'}
+        df['DiaSemana'] = df['DiaSemana'].map(dias_es)
+        total_global = Counter(df['Animal'])
+        total_sorteos = len(df)
+        prob_global = {a: c / total_sorteos for a, c in total_global.items()}
+        for dia in ['LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO', 'DOMINGO']:
+            sub = df[df['DiaSemana'] == dia]
+            if sub.empty:
+                continue
+            n_sorteos = len(sub)
+            n_dias = sub['Fecha'].nunique()
+            freq = sub['Animal'].value_counts().head(top_k)
+            print(f"\n  --- {dia} ({n_dias} dias, {n_sorteos} sorteos) ---")
+            print(f"  {'#':>3} {'Animal':<14} {'Veces':>5} {'% dia':>6} {'Lift':>7}")
+            print(f"  {'-'*40}")
+            for i, (animal, cnt) in enumerate(freq.items(), 1):
+                pct = cnt / n_sorteos * 100
+                esperado = prob_global.get(animal, 0) * n_sorteos
+                lift = (cnt / esperado - 1) * 100 if esperado > 0 else 0
+                lift_str = f"+{lift:.0f}%" if lift > 0 else f"{lift:.0f}%"
+                print(f"  {i:3d} {animal:<14} {cnt:5d} {pct:5.1f}% {lift_str:>7}")
+        print(f"\n{'='*70}\n")
+
     def generar_matriz_probabilidad(self, datos):
         datos['Animal_Siguiente'] = datos['Animal'].shift(-1)
         datos['Solo_Fecha'] = datos['Timestamp'].dt.date
@@ -2378,49 +2483,92 @@ class Loteria:
         return resultado
 
     def get_matriz_segundo_orden(self, datos, animal1, animal2, top_k=25):
-        """
-        Retorna [(siguiente, prob %, muestras)] top_k usando Markov de 2do orden:
-        dados dos animales previos consecutivos, predecir el siguiente.
-        Cuenta pares (prev1, prev2) -> siguiente en sorteos consecutivos del mismo dia.
-        """
         from collections import defaultdict
-        datos = self.preparar_datos_markov(datos)
+        d = self.preparar_datos_markov(datos)
+        conteo = defaultdict(lambda: defaultdict(int))
+        total = defaultdict(int)
+        for _, grupo in d.groupby('Fecha'):
+            grupo = grupo.sort_values('Hora')
+            for i in range(2, len(grupo)):
+                a, b, c = grupo.iloc[i-2]['Animal'], grupo.iloc[i-1]['Animal'], grupo.iloc[i]['Animal']
+                conteo[(a, b)][c] += 1
+                total[(a, b)] += 1
+        par = (animal1, animal2)
+        if par not in total or total[par] == 0:
+            return []
+        t = total[par]
+        items = [(a, cnt / t * 100, cnt) for a, cnt in conteo[par].items()]
+        items.sort(key=lambda x: -x[1])
+        return items[:top_k]
 
-        trans_g, total_g, trans_h, total_h = self.construir_matrices_markov(datos, incluir_trasnocho=incluir_trasnocho)
-        pareja = (hora_origen, hora_destino)
-        resultado = {}
-        for animal in sorted(self.animales_carac.keys()):
-            # Scores globales
-            g_scores = {}
-            if animal in total_g and total_g[animal] > 0:
-                t = total_g[animal]
-                g_scores = {a2: cnt / t * 100 for a2, cnt in trans_g[animal].items()}
+    def get_prediccion_combinada(self, datos, animal, hora_origen, hora_destino, top_k=10, incluir_trasnocho=False):
+        """
+        Combina 4 fuentes para predecir el siguiente animal:
+          1. Markov global
+          2. Markov x hora
+          3. Frecuencia historica por hora
+          4. Co-ocurrencia en el mismo dia
+        Retorna [(siguiente, score_combinado, muestras), ...] top_k.
+        """
+        from collections import defaultdict, Counter
+        from itertools import combinations
+        d = self.preparar_datos_markov(datos)
 
-            # Scores por hora
-            h_scores = {}
-            if animal in total_h.get(pareja, {}) and total_h[pareja][animal] > 0:
-                t = total_h[pareja][animal]
-                h_scores = {a2: cnt / t * 100 for a2, cnt in trans_h[pareja][animal].items()}
+        # --- 1. Markov global ---
+        mg = self.get_matriz_global_por_animal(d, top_k=38, incluir_trasnocho=incluir_trasnocho)
+        g_scores = {a: p for a, p, _ in mg.get(animal, [])}
 
-            if not g_scores and not h_scores:
-                resultado[animal] = []
+        # --- 2. Markov x hora ---
+        mh = self.get_matriz_hora_por_animal(d, hora_origen, hora_destino, top_k=38, incluir_trasnocho=incluir_trasnocho)
+        h_scores = {a: p for a, p, _ in mh.get(animal, [])}
+
+        # --- 3. Frecuencia historica por hora ---
+        hora_12 = pd.to_datetime(hora_origen, format='%H:%M:%S').strftime('%I:%M %p')
+        sub = d[d['Solo_hora'] == hora_12] if 'Solo_hora' in d.columns else d
+        total_hora = len(sub)
+        freq_hora = sub['Animal'].value_counts(normalize=True).mul(100).to_dict()
+
+        # --- 4. Co-ocurrencia en el mismo dia ---
+        cooc = defaultdict(int)
+        cooc_total = 0
+        for _, grupo in d.groupby('Fecha'):
+            anims = set(grupo['Animal'].unique())
+            if animal in anims:
+                cooc_total += 1
+                for a2 in anims:
+                    if a2 != animal:
+                        cooc[a2] += 1
+        cooc_scores = {a: c / cooc_total * 100 for a, c in cooc.items()} if cooc_total else {}
+
+        # --- Combinacion ponderada ---
+        animales = sorted(self.animales_carac.keys())
+        todos = set(g_scores.keys()) | set(h_scores.keys()) | set(freq_hora.keys()) | set(cooc_scores.keys())
+
+        muestras_h = sum(c for _, _, c in mh.get(animal, []))
+        w_h = min(0.35, max(0.05, muestras_h / 100 * 0.35))
+        w_g = 0.40 - w_h * 0.5
+        w_f = 0.20
+        w_c = 0.40 - w_h * 0.5
+
+        combinado = {}
+        for a2 in todos:
+            if a2 == animal:
                 continue
+            pg = g_scores.get(a2, 0)
+            ph = h_scores.get(a2, 0)
+            pf = freq_hora.get(a2, 0)
+            pc = cooc_scores.get(a2, 0)
+            score = pg * w_g + ph * w_h + pf * w_f + pc * w_c
+            muestras = sum([
+                1 if a2 in g_scores else 0,
+                1 if a2 in h_scores else 0,
+                1 if a2 in freq_hora else 0,
+                1 if a2 in cooc_scores else 0,
+            ])
+            combinado[a2] = (score, muestras)
 
-            # Peso variable: mas peso a hora si hay suficientes muestras
-            muestras_hora = total_h.get(pareja, {}).get(animal, 0)
-            w_h = min(0.9, max(0.1, muestras_hora / 50))
-            w_g = 1 - w_h
-
-            todos = set(g_scores.keys()) | set(h_scores.keys())
-            combinados = {}
-            for a2 in todos:
-                pg = g_scores.get(a2, 0)
-                ph = h_scores.get(a2, 0)
-                combinados[a2] = pg * w_g + ph * w_h
-
-            sorted_items = sorted(combinados.items(), key=lambda x: -x[1])
-            resultado[animal] = sorted_items[:top_k]
-        return resultado
+        sorted_items = sorted(combinado.items(), key=lambda x: -x[1][0])
+        return [(a, s, m) for a, (s, m) in sorted_items[:top_k]]
 
     def main_menu(self, datos):
         opciones = [

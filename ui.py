@@ -290,11 +290,7 @@ class LottoPredictorUI:
         ttk.Button(frame_btn, text="Global x Hora", command=self._ventana_matriz_combinada).pack(side=tk.LEFT, padx=2)
         ttk.Button(frame_btn, text="Predecir Siguiente (M+H)", command=self._predecir_siguiente_mh_dialogo).pack(side=tk.LEFT, padx=2)
         ttk.Button(frame_btn, text="Top-25 General", command=lambda: self._panel_top25()).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_btn, text="Evaluar Precision", command=self._evaluar_precision).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_btn, text="Precision x Animal", command=self._evaluar_por_animal).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_btn, text="Backtesting", command=self._dialogo_backtesting).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_btn, text="Cadena del Dia", command=self._dialogo_cadena).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_btn, text="2do Orden", command=self._dialogo_segundo_orden).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_btn, text="Patrones", command=self._dialogo_patrones).pack(side=tk.LEFT, padx=2)
 
     def _panel_top25(self):
         datos = self._get_datos()
@@ -550,11 +546,9 @@ class LottoPredictorUI:
                 for i in range(idx, len(parejas)):
                     o, dest = parejas[i]
                     h_12 = pd.to_datetime(o, format='%H:%M:%S').strftime('%I:%M %p')
-                    h_dest_12 = pd.to_datetime(dest, format='%H:%M:%S').strftime('%I:%M %p')
-                    mat = analizador.get_matriz_hora_por_animal(d, o, dest, top_k=5, incluir_trasnocho=trasnocho_var.get())
-                    preds = mat.get(animal_act, [])
+                    preds = analizador.get_prediccion_combinada(d, animal_act, o, dest, top_k=5, incluir_trasnocho=trasnocho_var.get())
                     top5 = [f"{a}({p:.0f}%)" for a, p, _ in preds[:5]] if preds else ["(sin datos)"]
-                    texto += f"  {h_12:<8}  {animal_act:<14}  {', '.join(top5):<55}\n"
+                    texto += f"  {h_12:<8}  {animal_act:<14}  {' / '.join(top5):<55}\n"
                     animal_act = preds[0][0] if preds else animal_act
                 ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
             threading.Thread(target=tarea, daemon=True).start()
@@ -606,6 +600,45 @@ class LottoPredictorUI:
         entry1.bind("<Return>", lambda e: entry2.focus_set())
         entry2.bind("<Return>", lambda e: buscar())
         ttk.Button(frame_top, text="Buscar", command=buscar).pack(side=tk.LEFT, padx=5)
+
+    def _dialogo_patrones(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Patrones - {self.current_lottery}")
+        ventana.geometry("750x650")
+        frame_top = ttk.Frame(ventana)
+        frame_top.pack(fill=tk.X, padx=5, pady=5)
+
+        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        def ejecutar(accion):
+            d = datos.copy()
+            txt.delete("1.0", tk.END)
+            txt.insert(tk.END, f"Analizando patrones...\n")
+            def tarea():
+                redir = RedirectText(txt)
+                with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
+                    if accion == "coocurrencias":
+                        analizador.analizar_coocurrencias(d)
+                    elif accion == "rango":
+                        analizador.analizar_coocurrencias_por_rango(d)
+                    elif accion == "dia_semana":
+                        analizador.analizar_frecuencia_por_dia_semana(d)
+                    ventana.after(0, lambda: txt.see(tk.END))
+            threading.Thread(target=tarea, daemon=True).start()
+
+        ttk.Button(frame_top, text="Co-ocurrencias", command=lambda: ejecutar("coocurrencias")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_top, text="Rango Horario", command=lambda: ejecutar("rango")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_top, text="Dia Semana", command=lambda: ejecutar("dia_semana")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_top, text="Cadena Dia", command=self._dialogo_cadena).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_top, text="2do Orden", command=self._dialogo_segundo_orden).pack(side=tk.LEFT, padx=2)
 
     def _dialogo_markov(self):
         datos = self._get_datos()
