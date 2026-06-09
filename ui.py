@@ -553,14 +553,19 @@ class LottoPredictorUI:
                 texto += "=" * 60 + "\n\n"
                 texto += f"{'Hora':>8}  {'Actual':<14}  {'Top-5 siguientes':<55}\n"
                 texto += '-' * 80 + '\n'
-                animal_act = animal
+                num_act = analizador.animal_a_num_int.get(animal, -1)
+                if num_act < 0:
+                    texto = f"Animal '{animal}' no encontrado en el diccionario.\n"
+                    ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
+                    return
                 for i in range(idx, len(parejas)):
                     o, dest = parejas[i]
                     h_12 = pd.to_datetime(o, format='%H:%M:%S').strftime('%I:%M %p')
-                    preds = analizador.get_prediccion_combinada(d, animal_act, o, dest, top_k=5, incluir_trasnocho=trasnocho_var.get())
+                    preds = analizador.get_prediccion_combinada(d, num_act, o, dest, top_k=5, incluir_trasnocho=trasnocho_var.get())
+                    animal_label = analizador.num_int_a_animal.get(num_act, f"?({num_act})")
                     top5 = [f"{a}({p:.0f}%)" for a, p, _ in preds[:5]] if preds else ["(sin datos)"]
-                    texto += f"  {h_12:<8}  {animal_act:<14}  {' / '.join(top5):<55}\n"
-                    animal_act = preds[0][0] if preds else animal_act
+                    texto += f"  {h_12:<8}  {num_act:2d}({animal_label:<10})  {' / '.join(top5):<55}\n"
+                    num_act = preds[0][0] if preds else num_act
                 ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
             threading.Thread(target=tarea, daemon=True).start()
         entry_animal.bind("<Return>", lambda e: simular())
@@ -648,12 +653,18 @@ class LottoPredictorUI:
                         analizador.analizar_coocurrencias_por_rango(d)
                     elif accion == "dia_semana":
                         analizador.analizar_frecuencia_por_dia_semana(d)
+                    elif accion == "rachas":
+                        analizador.analizar_secuencias_aciertos_fallos(d)
+                    elif accion == "comparar":
+                        analizador.comparar_estrategias(d)
                     ventana.after(0, lambda: txt.see(tk.END))
             threading.Thread(target=tarea, daemon=True).start()
 
         ttk.Button(frame_top, text="Co-ocurrencias", command=lambda: ejecutar("coocurrencias")).pack(side=tk.LEFT, padx=2)
         ttk.Button(frame_top, text="Rango Horario", command=lambda: ejecutar("rango")).pack(side=tk.LEFT, padx=2)
         ttk.Button(frame_top, text="Dia Semana", command=lambda: ejecutar("dia_semana")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_top, text="Rachas", command=lambda: ejecutar("rachas")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(frame_top, text="Comparar", command=lambda: ejecutar("comparar")).pack(side=tk.LEFT, padx=2)
         ttk.Button(frame_top, text="Cadena Dia", command=self._dialogo_cadena).pack(side=tk.LEFT, padx=2)
         ttk.Button(frame_top, text="2do Orden", command=self._dialogo_segundo_orden).pack(side=tk.LEFT, padx=2)
 

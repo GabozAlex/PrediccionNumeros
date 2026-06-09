@@ -189,6 +189,14 @@ class Loteria:
         hour_num_cnt = defaultdict(lambda: defaultdict(int))
         hour_num_total = defaultdict(int)
         last_num_pos = {}
+        # Co-ocurrencia en el mismo dia
+        cooc_cnt = defaultdict(lambda: defaultdict(int))
+        cooc_total = defaultdict(int)
+        # Lift por dia de semana
+        dia_num_cnt = defaultdict(lambda: defaultdict(int))
+        dia_num_total = defaultdict(int)
+        global_num_cnt = defaultdict(int)
+        global_total = 0
         prob_hora_vals = []
         prob_dia_vals = []
         prob_trans_vals = []
@@ -197,13 +205,19 @@ class Loteria:
         prob_hora_num_vals = []
         gap_num_vals = []
         racha_num_vals = []
+        prob_cooc_vals = []
+        lift_dia_vals = []
         recent_window = deque(maxlen=10)
         recent_num_window = deque(maxlen=10)
+        # Track last fecha for co-occurrence
+        last_fecha = None
+        last_num_int = None
         for idx in range(len(df)):
             cur_animal = df.iloc[idx]['Animal']
             cur_num = df.iloc[idx]['Num_Int']
             cur_hour = df.iloc[idx]['Solo_hora']
             cur_dia = df.iloc[idx]['Dia_Semana']
+            cur_fecha = df.iloc[idx]['Fecha'] if 'Fecha' in df.columns else None
             # Calculate probabilities using PREVIOUS data only (no look-ahead)
             prob_hora_vals.append(
                 (hour_animal_cnt[cur_hour][cur_animal] / hour_total_cnt[cur_hour] * 100)
@@ -258,6 +272,30 @@ class Loteria:
                 racha_num_vals.append(racha_num_vals[-1] + 1 if racha_num_vals else 2)
             else:
                 racha_num_vals.append(1)
+            # Co-ocurrencia en el mismo dia
+            if cur_fecha is not None and last_num_int is not None and last_fecha == cur_fecha:
+                prob_cooc_vals.append(
+                    (cooc_cnt[last_num_int][cur_num] / cooc_total[last_num_int] * 100)
+                    if cooc_total[last_num_int] > 0 else 0.0
+                )
+            else:
+                prob_cooc_vals.append(0.0)
+            if cur_fecha is not None and last_num_int is not None and last_fecha == cur_fecha:
+                cooc_cnt[last_num_int][cur_num] += 1
+                cooc_total[last_num_int] += 1
+            # Lift por dia de semana
+            prob_global_num = (global_num_cnt[cur_num] / global_total * 100) if global_total > 0 else 0.0
+            prob_dia_num = (dia_num_cnt[cur_dia][cur_num] / dia_num_total[cur_dia] * 100) if dia_num_total[cur_dia] > 0 else 0.0
+            if prob_global_num > 0:
+                lift_dia_vals.append((prob_dia_num / prob_global_num - 1) * 100)
+            else:
+                lift_dia_vals.append(0.0)
+            global_num_cnt[cur_num] += 1
+            global_total += 1
+            dia_num_cnt[cur_dia][cur_num] += 1
+            dia_num_total[cur_dia] += 1
+            last_fecha = cur_fecha
+            last_num_int = cur_num
         df['Prob_Hist_Hora'] = prob_hora_vals
         df['Prob_Hist_Dia'] = prob_dia_vals
         df['Prob_Trans_Markov'] = prob_trans_vals
@@ -266,6 +304,8 @@ class Loteria:
         df['Prob_Num_Hora'] = prob_hora_num_vals
         df['Gap_Num'] = gap_num_vals
         df['Racha_Num'] = racha_num_vals
+        df['Prob_Cooc'] = prob_cooc_vals
+        df['Lift_Dia'] = lift_dia_vals
 
         print(f"Caracteristicas avanzadas anadidas: {len(df.columns)} features totales")
         return df
@@ -297,7 +337,9 @@ class Loteria:
         numeric_features = ['Dif_Ciclica_N', 'Prob_Num_Hora', 'Gap_Num', 'Repite_Num',
                             'Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
                             'Frecuencia_10', 'Sorteos_Desde_Aparicion',
-                            'Color_Previo', 'Paridad_Previo']
+                            'Color_Previo', 'Paridad_Previo',
+                            'Racha_Num', 'Mismo_Num_3', 'Media_5_N', 'Std_5_N',
+                            'Prob_Cooc', 'Lift_Dia']
         categorical_features = ['Hora_Sorteo']
         if 'Hora_Sorteo' not in df_ml.columns:
             df_ml['Hora_Sorteo'] = df_ml['Hora'].astype(str).str.strip().str.zfill(8)
@@ -361,7 +403,9 @@ class Loteria:
         numeric_candidates = ['Dif_Ciclica_N', 'Prob_Num_Hora', 'Gap_Num', 'Repite_Num',
                               'Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
                               'Frecuencia_10', 'Sorteos_Desde_Aparicion',
-                              'Color_Previo', 'Paridad_Previo']
+                              'Color_Previo', 'Paridad_Previo',
+                              'Racha_Num', 'Mismo_Num_3', 'Media_5_N', 'Std_5_N',
+                              'Prob_Cooc', 'Lift_Dia']
         available_numeric = [f for f in numeric_candidates if f in df_ml.columns]
         all_features = available_numeric + ['Hora_Sorteo']
         print(f"\nGenerando Matriz de Prediccion TOP-{k} de la IA ({len(all_features)} features)...")
@@ -749,7 +793,9 @@ class Loteria:
         prob_hora = self._frecuencias_hora(df, 'Hora')
         numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
                               'Frecuencia_10', 'Sorteos_Desde_Aparicion',
-                              'Color_Previo', 'Paridad_Previo']
+                              'Color_Previo', 'Paridad_Previo',
+                              'Prob_Cooc', 'Lift_Dia', 'Racha_Num', 'Mismo_Num_3', 'Media_5_N', 'Std_5_N',
+                              'Dif_Ciclica_N', 'Prob_Num_Hora', 'Gap_Num', 'Repite_Num']
         available_numeric = [f for f in numeric_candidates if f in df.columns]
         all_nums = list(range(38))
         horas_del_dia = sorted(df['Hora'].unique())
@@ -866,7 +912,9 @@ class Loteria:
         prob_hora = self._frecuencias_hora(df, 'Hora')
         numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
                               'Frecuencia_10', 'Sorteos_Desde_Aparicion',
-                              'Color_Previo', 'Paridad_Previo']
+                              'Color_Previo', 'Paridad_Previo',
+                              'Prob_Cooc', 'Lift_Dia', 'Racha_Num', 'Mismo_Num_3', 'Media_5_N', 'Std_5_N',
+                              'Dif_Ciclica_N', 'Prob_Num_Hora', 'Gap_Num', 'Repite_Num']
         available_numeric = [f for f in numeric_candidates if f in df.columns]
         animales_validos = list(self.animales_carac.keys())
         markov_scores = {}
@@ -949,7 +997,9 @@ class Loteria:
             df_eval['Hora_Sorteo'] = df_eval['Hora'].astype(str).str.strip().str.zfill(8)
         numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
                               'Frecuencia_10', 'Sorteos_Desde_Aparicion',
-                              'Color_Previo', 'Paridad_Previo']
+                              'Color_Previo', 'Paridad_Previo',
+                              'Prob_Cooc', 'Lift_Dia', 'Racha_Num', 'Mismo_Num_3', 'Media_5_N', 'Std_5_N',
+                              'Dif_Ciclica_N', 'Prob_Num_Hora', 'Gap_Num', 'Repite_Num']
         available_numeric = [f for f in numeric_candidates if f in df_eval.columns]
         trans_prob, trans_total = self._transiciones_markov(df)
         freq_hora = self._frecuencias_hora(df, 'Solo_hora')
@@ -2462,11 +2512,22 @@ class Loteria:
             ('18:00:00', '19:00:00'),
         ]
 
+    def _get_parejas_from_data(self, datos):
+        """Extrae TODOS los pares horarios unicos presentes en los datos."""
+        pairs = set()
+        for _, g in datos.groupby('Fecha'):
+            g = g.sort_values('Hora')
+            for i in range(1, len(g)):
+                pairs.add((g.iloc[i-1]['Hora'], g.iloc[i]['Hora']))
+        sorted_pairs = sorted(pairs, key=lambda x: (x[0], x[1]))
+        return sorted_pairs if sorted_pairs else self.get_parejas_horarias()
+
     def construir_matrices_markov(self, datos, incluir_trasnocho=False):
         """Construye y retorna (trans_count_global, total_global, trans_count_hora, total_hora).
+        Los pares horarios se derivan de los datos reales para soportar cualquier schedule.
         Estados: Num_Int (0-37)."""
         from collections import defaultdict
-        parejas = self.get_parejas_horarias()
+        parejas = self._get_parejas_from_data(datos)
         trans_g = defaultdict(lambda: defaultdict(int))
         total_g = defaultdict(int)
         trans_h = {}
@@ -2474,10 +2535,6 @@ class Loteria:
         for p in parejas:
             trans_h[p] = defaultdict(lambda: defaultdict(int))
             total_h[p] = defaultdict(int)
-        trasnocho_key = ('19:00:00', '08:00:00')
-        if incluir_trasnocho:
-            trans_h[trasnocho_key] = defaultdict(lambda: defaultdict(int))
-            total_h[trasnocho_key] = defaultdict(int)
 
         for fecha, df in datos.groupby('Fecha'):
             df = df.sort_values('Hora')
@@ -2665,6 +2722,267 @@ class Loteria:
 
         sorted_items = sorted(combinado.items(), key=lambda x: -x[1][0])
         return [(n, s, m) for n, (s, m) in sorted_items[:top_k]]
+
+    def analizar_secuencias_aciertos_fallos(self, datos, top_k=25, train_pct=0.7):
+        from collections import defaultdict
+        d = datos.copy()
+        print(f"\n{'='*70}")
+        print(f"  RACHAS DE ACIERTOS Y FALLOS (Markov x Hora, Top-{top_k})")
+        print(f"{'='*70}")
+        fechas_completas = d.groupby('Fecha').size()
+        fechas_completas = fechas_completas[fechas_completas == 12].index
+        d = d[d['Fecha'].isin(fechas_completas)]
+        fechas_ordenadas = sorted(fechas_completas)
+        split_idx = int(len(fechas_ordenadas) * train_pct)
+        fechas_train = set(fechas_ordenadas[:split_idx])
+        fechas_test = fechas_ordenadas[split_idx:]
+        n_dias = len(fechas_test)
+        print(f"  Train: {len(fechas_train)} dias, Test: {n_dias} dias\n")
+
+        d_train = d[d['Fecha'].isin(fechas_train)]
+        dp_train = self.preparar_datos_markov(d_train)
+        _, _, trans_h, total_h = self.construir_matrices_markov(dp_train, incluir_trasnocho=False)
+
+        racha_acierto = defaultdict(list)
+        racha_fallo = defaultdict(list)
+        hora_stats = defaultdict(lambda: {'total': 0, 'aciertos': 0, 'tras_acierto': 0, 'tras_fallo': 0, 'prev_acierto': 0, 'prev_fallo': 0})
+
+        for fecha, grupo in d[d['Fecha'].isin(fechas_test)].groupby('Fecha'):
+            grupo = grupo.sort_values('Hora')
+            aciertos_dia = []
+            for i in range(1, len(grupo)):
+                ant = int(grupo.iloc[i-1]['Num_Int'])
+                sig = int(grupo.iloc[i]['Num_Int'])
+                hp = grupo.iloc[i-1]['Hora']
+                hn = grupo.iloc[i]['Hora']
+                par = (hp, hn)
+                hora_dict = trans_h.get(par, {})
+                ant_dict = hora_dict.get(ant, {})
+                top = sorted(ant_dict, key=lambda n: -ant_dict[n])[:top_k] if ant_dict else []
+                acierto = sig in top
+                aciertos_dia.append((par, acierto))
+                hora_stats[par]['total'] += 1
+                if acierto:
+                    hora_stats[par]['aciertos'] += 1
+
+            for i in range(1, len(aciertos_dia)):
+                par_curr, curr_ac = aciertos_dia[i]
+                _, prev_ac = aciertos_dia[i - 1]
+                if prev_ac:
+                    hora_stats[par_curr]['prev_acierto'] += 1
+                    if curr_ac:
+                        hora_stats[par_curr]['tras_acierto'] += 1
+                else:
+                    hora_stats[par_curr]['prev_fallo'] += 1
+                    if curr_ac:
+                        hora_stats[par_curr]['tras_fallo'] += 1
+
+            i = 0
+            while i < len(aciertos_dia):
+                _, ac = aciertos_dia[i]
+                if ac:
+                    start = i
+                    while i < len(aciertos_dia) and aciertos_dia[i][1]:
+                        i += 1
+                    largo = i - start
+                    for n in range(1, largo):
+                        racha_acierto[n].append(True)
+                    if i < len(aciertos_dia):
+                        racha_acierto[largo].append(False)
+                else:
+                    start = i
+                    while i < len(aciertos_dia) and not aciertos_dia[i][1]:
+                        i += 1
+                    largo = i - start
+                    for n in range(1, largo + 1):
+                        if n < largo:
+                            racha_fallo[n].append(True)
+                        elif i < len(aciertos_dia):
+                            racha_fallo[n].append(False)
+
+        print(f"\n  RACHAS DE ACIERTOS (Top-{top_k})")
+        print(f"  {'# Aciertos seg':<16} {'Sigue acertando':>16} {'%':>6}")
+        print(f"  {'-'*40}")
+        for n in sorted(racha_acierto.keys()):
+            vals = racha_acierto[n]
+            if vals:
+                pct = sum(vals) / len(vals) * 100
+                print(f"  {n} acierto(s) seguido(s)   {sum(vals):>4}/{len(vals):<4} {pct:>5.1f}%")
+
+        print(f"\n  RACHAS DE FALLOS (Top-{top_k})")
+        print(f"  {'# Fallos seg':<16} {'Sigue fallando':>16} {'%':>6}")
+        print(f"  {'-'*40}")
+        for n in sorted(racha_fallo.keys()):
+            vals = racha_fallo[n]
+            pct = sum(vals) / len(vals) * 100
+            print(f"  {n} fallo(s) seguido(s)     {sum(vals):>4}/{len(vals):<4} {pct:>5.1f}%")
+
+        print(f"\n\n  POR HORA")
+        print(f"  {'Hora':<14} {'%Acierto':>10} {'Tras acierto':>14} {'Tras fallo':>12}")
+        print(f"  {'-'*52}")
+        for (hp, hn), st in sorted(hora_stats.items()):
+            if st['total'] == 0:
+                continue
+            pct_ac = st['aciertos'] / st['total'] * 100
+            tr_ac = st['tras_acierto'] / max(st['prev_acierto'], 1) * 100
+            tr_fa = st['tras_fallo'] / max(st['prev_fallo'], 1) * 100
+            h12 = pd.to_datetime(hp, format='%H:%M:%S').strftime('%I:%M %p')
+            print(f"  {h12:<14} {pct_ac:>8.1f}%  {tr_ac:>10.1f}%  {tr_fa:>10.1f}%")
+        print(f"\n{'='*70}\n")
+
+    def comparar_estrategias(self, datos, top_k=25, train_pct=0.7):
+        from collections import defaultdict
+        d = datos.copy()
+        print(f"\n{'='*80}")
+        print(f"  COMPARACION DE ESTRATEGIAS (Top-{top_k})")
+        print(f"{'='*80}")
+        fechas_completas = set(d.groupby('Fecha').size()
+                               [d.groupby('Fecha').size() == 12].index)
+        d = d[d['Fecha'].isin(fechas_completas)]
+        fechas_ordenadas = sorted(fechas_completas)
+        split_idx = int(len(fechas_ordenadas) * train_pct)
+        fechas_train = set(fechas_ordenadas[:split_idx])
+        fechas_test = fechas_ordenadas[split_idx:]
+        print(f"  Train: {len(fechas_train)} dias, Test: {len(fechas_test)} dias\n")
+
+        d_train = d[d['Fecha'].isin(fechas_train)]
+        dp_train = self.preparar_datos_markov(d_train)
+        trans_g, total_g, trans_h, total_h = self.construir_matrices_markov(dp_train, incluir_trasnocho=False)
+
+        freq_por_hora = {}
+        for hora in d_train['Solo_hora'].unique():
+            sub = d_train[d_train['Solo_hora'] == hora]
+            freq_por_hora[hora] = sub['Num_Int'].value_counts(normalize=True).mul(100)
+
+        cooc_global = defaultdict(lambda: defaultdict(int))
+        cooc_total_global = defaultdict(int)
+        for _, g in d_train.groupby('Fecha'):
+            nums = set(g['Num_Int'].unique())
+            for n in nums:
+                cooc_total_global[n] += 1
+                for n2 in nums:
+                    if n2 != n:
+                        cooc_global[n][n2] += 1
+
+        resultados = defaultdict(lambda: {'total': 0, 'g': 0, 'h': 0, 'f': 0, 'c': 0, 'gxh': 0, 'full': 0})
+        solo_stats = defaultdict(lambda: {'g': 0, 'h': 0, 'f': 0, 'c': 0})
+        por_hora = defaultdict(lambda: {'total': 0, 'g': 0, 'h': 0, 'gxh': 0, 'full': 0})
+
+        for fecha, grupo in d[d['Fecha'].isin(fechas_test)].groupby('Fecha'):
+            grupo = grupo.sort_values('Hora')
+            for i in range(1, len(grupo)):
+                ant = int(grupo.iloc[i-1]['Num_Int'])
+                sig = int(grupo.iloc[i]['Num_Int'])
+                hp = grupo.iloc[i-1]['Hora']
+                hn = grupo.iloc[i]['Hora']
+                par = (hp, hn)
+
+                g_dict = {}
+                if ant in total_g and total_g[ant] > 0:
+                    t = total_g[ant]
+                    g_dict = {n: c / t * 100 for n, c in trans_g[ant].items()}
+                g_top = set(sorted(g_dict, key=g_dict.get, reverse=True)[:top_k])
+
+                h_dict = {}
+                if ant in total_h.get(par, {}) and total_h[par][ant] > 0:
+                    t = total_h[par][ant]
+                    h_dict = {n: c / t * 100 for n, c in trans_h[par][ant].items()}
+                h_top = set(sorted(h_dict, key=h_dict.get, reverse=True)[:top_k])
+
+                h12 = pd.to_datetime(hp, format='%H:%M:%S').strftime('%I:%M %p')
+                f_series = freq_por_hora.get(h12, pd.Series(dtype=float))
+                f_top = set(f_series.head(top_k).index)
+
+                c_dict = {n: c / cooc_total_global[ant] * 100 for n, c in cooc_global[ant].items()} if cooc_total_global[ant] > 0 else {}
+                c_top = set(sorted(c_dict, key=c_dict.get, reverse=True)[:top_k])
+
+                gxh_scores = {}
+                for n in range(38):
+                    pg = g_dict.get(n, 0)
+                    ph = h_dict.get(n, 0)
+                    if pg > 0 or ph > 0:
+                        gxh_scores[n] = pg + ph
+                gxh_top = set(sorted(gxh_scores, key=gxh_scores.get, reverse=True)[:top_k])
+
+                w_h = min(0.35, max(0.05, total_h.get(par, {}).get(ant, 0) / 100 * 0.35))
+                w_g = 0.40 - w_h * 0.5
+                w_f = 0.20
+                w_c = 0.40 - w_h * 0.5
+                full_scores = {}
+                for n in range(38):
+                    if n == ant:
+                        continue
+                    pg = g_dict.get(n, 0)
+                    ph = h_dict.get(n, 0)
+                    pf = f_series.get(n, 0)
+                    pc = c_dict.get(n, 0)
+                    full_scores[n] = pg * w_g + ph * w_h + pf * w_f + pc * w_c
+                full_top = set(sorted(full_scores, key=full_scores.get, reverse=True)[:top_k])
+
+                resultados[par]['total'] += 1
+                if sig in g_top: resultados[par]['g'] += 1
+                if sig in h_top: resultados[par]['h'] += 1
+                if sig in f_top: resultados[par]['f'] += 1
+                if sig in c_top: resultados[par]['c'] += 1
+                if sig in gxh_top: resultados[par]['gxh'] += 1
+                if sig in full_top: resultados[par]['full'] += 1
+
+                hits = {'g': sig in g_top, 'h': sig in h_top, 'f': sig in f_top, 'c': sig in c_top}
+                solo_count = sum(hits.values())
+                if solo_count == 1:
+                    for k, v in hits.items():
+                        if v:
+                            solo_stats[k][k] += 1
+
+                por_hora[hp]['total'] += 1
+                if sig in g_top: por_hora[hp]['g'] += 1
+                if sig in h_top: por_hora[hp]['h'] += 1
+                if sig in gxh_top: por_hora[hp]['gxh'] += 1
+                if sig in full_top: por_hora[hp]['full'] += 1
+
+        totals = {'total': sum(r['total'] for r in resultados.values())}
+        for key in ['g', 'h', 'f', 'c', 'gxh', 'full']:
+            totals[key] = sum(r[key] for r in resultados.values())
+
+        print(f"\n  GLOBAL (todas las transiciones)")
+        print(f"  {'Estrategia':<20} {'Aciertos':>10} {'Total':>8} {'%':>6}")
+        print(f"  {'-'*46}")
+        labels = {'g': 'G (Markov global)', 'h': 'H (Markov x hora)', 'f': 'F (Frec. hora)',
+                  'c': 'C (Co-ocurrencia)', 'gxh': 'GxH (Global x Hora)', 'full': 'Full (4 fuentes)'}
+        for key in ['g', 'h', 'f', 'c', 'gxh', 'full']:
+            pct = totals[key] / totals['total'] * 100 if totals['total'] else 0
+            print(f"  {labels[key]:<20} {totals[key]:>10} {totals['total']:>8} {pct:>5.1f}%")
+
+        print(f"\n  ACIERTOS SOLITARIOS (solo una estrategia acerto)")
+        print(f"  {'Estrategia':<20} {'Casos':>8}")
+        print(f"  {'-'*30}")
+        for k in ['g', 'h', 'f', 'c']:
+            print(f"  {labels[k]:<20} {solo_stats[k][k]:>8}")
+
+        print(f"\n  TOP-3 HORAS MEJORES (Full)")
+        horas_sorted = sorted(por_hora.items(), key=lambda x: x[1]['full']/max(x[1]['total'],1), reverse=True)
+        for o, st in horas_sorted[:3]:
+            h12 = pd.to_datetime(o, format='%H:%M:%S').strftime('%I:%M %p')
+            pct_g = st['g']/st['total']*100
+            pct_h = st['h']/st['total']*100
+            pct_gxh = st['gxh']/st['total']*100
+            pct_full = st['full']/st['total']*100
+            print(f"  {h12:<10} G:{pct_g:.0f}% H:{pct_h:.0f}% GxH:{pct_gxh:.0f}% Full:{pct_full:.0f}%")
+
+        print(f"\n  TOP-3 HORAS PEORES (Full)")
+        for o, st in horas_sorted[-3:]:
+            h12 = pd.to_datetime(o, format='%H:%M:%S').strftime('%I:%M %p')
+            pct_g = st['g']/st['total']*100
+            pct_h = st['h']/st['total']*100
+            pct_gxh = st['gxh']/st['total']*100
+            pct_full = st['full']/st['total']*100
+            print(f"  {h12:<10} G:{pct_g:.0f}% H:{pct_h:.0f}% GxH:{pct_gxh:.0f}% Full:{pct_full:.0f}%")
+
+        full_win = sum(1 for st in resultados.values() if st['full'] > st['gxh'])
+        gxh_win = sum(1 for st in resultados.values() if st['gxh'] > st['full'])
+        print(f"\n  Full GANA a GxH en {full_win} transiciones")
+        print(f"  GxH GANA a Full en {gxh_win} transiciones")
+        print(f"\n{'='*80}\n")
 
     def main_menu(self, datos):
         opciones = [
