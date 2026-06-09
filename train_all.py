@@ -18,6 +18,11 @@ LOTTERIES = [
         'module': 'selva_plus',
         'analizador': None,
     },
+    {
+        'name': 'Lotto Activo Rd Int',
+        'module': 'lotto_rd_int',
+        'analizador': None,
+    },
 ]
 
 

@@ -125,7 +125,7 @@ def scrape_range(start_date, end_date, delay=1.5):
     return df
 
 
-def save_to_excel(df, filename="LottoActivo.xlsx"):
+def save_to_excel(df, filename="LottoActivoINT.xlsx"):
     existing = None
     if os.path.exists(filename):
         try:

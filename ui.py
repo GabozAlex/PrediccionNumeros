@@ -132,6 +132,12 @@ class LottoPredictorUI:
         excel_file = config['excel_file']
         analizador = mod.analizador
 
+        if not os.path.exists(excel_file):
+            print(f"AVISO: Archivo no encontrado: {excel_file}")
+            print(f"Usa la pestana 'Web Scraper' -> 'Scrapear Faltantes' para descargar datos de {nombre}")
+            self.datos[nombre] = pd.DataFrame()
+            return
+
         try:
             datos = pd.read_excel(excel_file)
             datos['Animal'] = datos['Animal'].astype(str).str.strip().str.upper()
@@ -323,8 +329,8 @@ class LottoPredictorUI:
             corte = len(d) - 1000
             train = d.iloc[:corte].copy()
             test = d.iloc[corte:].copy()
-            dp = analizador._preparar_datos_markov(train)
-            tg, tot, th, toh = analizador._construir_matrices_markov(dp, incluir_trasnocho=False)
+            dp = analizador.preparar_datos_markov(train)
+            tg, tot, th, toh = analizador.construir_matrices_markov(dp, incluir_trasnocho=False)
             def eval_k(k):
                 ag=ah=uni=total=0
                 for i in range(len(test)-1):
@@ -372,8 +378,8 @@ class LottoPredictorUI:
             corte = len(d) - 1000
             train = d.iloc[:corte].copy()
             test = d.iloc[corte:].copy()
-            dp = analizador._preparar_datos_markov(train)
-            tg, tot, _, _ = analizador._construir_matrices_markov(dp, incluir_trasnocho=False)
+            dp = analizador.preparar_datos_markov(train)
+            tg, tot, _, _ = analizador.construir_matrices_markov(dp, incluir_trasnocho=False)
             ac_g = {}
             ac_h = {}
             total_animal = {}
@@ -444,8 +450,8 @@ class LottoPredictorUI:
                 d = datos.copy()
                 d['Fecha'] = pd.to_datetime(d['Fecha']).dt.date
                 d = d.sort_values(['Fecha','Hora']).reset_index(drop=True)
-                dp = analizador._preparar_datos_markov(d)
-                tg, tot, _, _ = analizador._construir_matrices_markov(dp, incluir_trasnocho=False)
+                dp = analizador.preparar_datos_markov(d)
+                tg, tot, _, _ = analizador.construir_matrices_markov(dp, incluir_trasnocho=False)
                 desde_dt = pd.to_datetime(desde).date()
                 hasta_dt = pd.to_datetime(hasta).date()
                 sub = d[(d['Fecha'] >= desde_dt) & (d['Fecha'] <= hasta_dt)].copy()

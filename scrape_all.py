@@ -6,7 +6,7 @@ import sys
 LOTTERIES = [
     {
         'name': 'Lotto Activo',
-        'file': 'LottoActivoCompleto.xlsx',
+        'file': 'LottoActivoINT.xlsx',
         'module': 'scraper_lotto',
         'scrape_date': None,
         'save_to_excel': None,
@@ -22,6 +22,13 @@ LOTTERIES = [
         'name': 'Selva Plus',
         'file': 'SelvaPlus.xlsx',
         'module': 'scraper_selva_plus',
+        'scrape_date': None,
+        'save_to_excel': None,
+    },
+    {
+        'name': 'Lotto Activo Rd Int',
+        'file': 'LottoActivoRDInt.xlsx',
+        'module': 'scraper_lotto_rd_int',
         'scrape_date': None,
         'save_to_excel': None,
     },

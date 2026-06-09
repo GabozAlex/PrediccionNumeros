@@ -2,6 +2,7 @@ import sys
 import os
 import logging
 from logging.handlers import RotatingFileHandler
+import pandas as pd
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -117,3 +118,75 @@ def mostrar_menu(titulo, opciones):
                 print(f"Error: El numero debe estar entre 1 y {len(opciones)}")
         except ValueError:
             print("Error: Por favor, ingresa un numero valido.")
+
+
+def auto_scrape_missing_dates(datos, scrape_func, save_func, excel_file, delay=1.5):
+    """Scrapea fechas faltantes desde la ultima fecha en datos hasta hoy."""
+    import datetime as _dt
+    import time
+
+    fechas_existentes = set(pd.to_datetime(datos['Fecha']).dt.strftime("%Y-%m-%d").unique())
+    hoy = _dt.date.today()
+    ultima = _dt.datetime.strptime(max(fechas_existentes), "%Y-%m-%d").date()
+
+    if ultima >= hoy:
+        print("Auto-scraper: datos al dia")
+        return datos
+
+    desde = ultima + _dt.timedelta(days=1)
+    faltantes = []
+    d = desde
+    while d <= hoy:
+        ds = d.strftime("%Y-%m-%d")
+        if ds not in fechas_existentes:
+            faltantes.append(ds)
+        d += _dt.timedelta(days=1)
+
+    if not faltantes:
+        print("Auto-scraper: sin fechas faltantes")
+        return datos
+
+    print(f"Auto-scraper: {len(faltantes)} fechas faltantes ({desde} -> {hoy})")
+    todos = []
+    for i, fs in enumerate(faltantes):
+        r = scrape_func(fs)
+        todos.extend(r)
+        if (i + 1) % 10 == 0:
+            print(f"  Progreso: {i+1}/{len(faltantes)}")
+        time.sleep(delay)
+
+    if todos:
+        df_nuevo = pd.DataFrame(todos)
+        save_func(df_nuevo, excel_file)
+        datos = pd.read_excel(excel_file)
+        print(f"Auto-scraper: {len(df_nuevo)} nuevos registros")
+    else:
+        print("Auto-scraper: sin nuevos registros")
+
+    return datos
+
+
+def load_and_prepare_data(excel_file, analizador):
+    """Carga datos desde excel y aplica limpieza + feature engineering comun."""
+    datos = pd.read_excel(excel_file)
+    datos['Animal'] = datos['Animal'].astype(str).str.strip().str.upper()
+    datos['Numero'] = pd.to_numeric(datos['Numero'], errors='coerce')
+    if datos['Numero'].isna().sum() > 0:
+        print(f"  {datos['Numero'].isna().sum()} registros con numeros invalidos")
+
+    datos['Fecha'] = pd.to_datetime(datos['Fecha'], errors='coerce').dt.date
+    datos['Hora'] = datos['Hora'].astype(str).str.strip().str.zfill(8)
+    datos['Timestamp'] = pd.to_datetime(
+        datos['Fecha'].astype(str) + ' ' + datos['Hora'], errors='coerce'
+    )
+    datos = datos.dropna(subset=['Timestamp']).reset_index(drop=True)
+    datos['Solo_hora'] = datos['Timestamp'].dt.strftime('%I:%M %p').str.strip()
+    datos = datos.sort_values(by='Timestamp').reset_index(drop=True)
+    datos = analizador.agregar_caracteristicas_avanzadas(datos)
+
+    print(f"\nRESUMEN DE DATOS:")
+    print(f"  Total registros: {len(datos)}")
+    print(f"  Rango fechas: {datos['Timestamp'].min()} a {datos['Timestamp'].max()}")
+    print(f"  Animales unicos: {datos['Animal'].nunique()}")
+
+    return datos

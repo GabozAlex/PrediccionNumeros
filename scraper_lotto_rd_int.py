@@ -157,6 +157,7 @@ if __name__ == "__main__":
     print("=== LOTTO ACTIVO RD INT WEB SCRAPER ===")
     print("1. Scrape single date")
     print("2. Scrape date range")
+    print("3. Find missing dates and scrape")
     option = input("Select option: ").strip()
 
     if option == "1":
@@ -165,8 +166,12 @@ if __name__ == "__main__":
         df = pd.DataFrame(records)
         if not df.empty:
             print(df.to_string(index=False))
+            save = input("Save to Excel? (y/n): ").strip().lower()
+            if save == 'y':
+                save_to_excel(df)
         else:
             print("No records found.")
+
     elif option == "2":
         start = input("Start date (YYYY-MM-DD): ").strip()
         end = input("End date (YYYY-MM-DD): ").strip()
@@ -175,3 +180,46 @@ if __name__ == "__main__":
             save_to_excel(df)
         else:
             print("No records found.")
+
+    elif option == "3":
+        filename = input("Excel filename (default: LottoActivoRDInt.xlsx): ").strip() or "LottoActivoRDInt.xlsx"
+        if os.path.exists(filename):
+            existing = pd.read_excel(filename)
+            existing['Fecha'] = pd.to_datetime(existing['Fecha']).dt.strftime("%Y-%m-%d")
+            existing_dates = set(existing['Fecha'].unique())
+        else:
+            existing_dates = set()
+
+        all_dates = set()
+        start = input("Start date (YYYY-MM-DD): ").strip()
+        end = input("End date (YYYY-MM-DD): ").strip()
+        current = datetime.datetime.strptime(start, "%Y-%m-%d")
+        end_dt = datetime.datetime.strptime(end, "%Y-%m-%d")
+        while current <= end_dt:
+            all_dates.add(current.strftime("%Y-%m-%d"))
+            current += datetime.timedelta(days=1)
+
+        missing = sorted(all_dates - existing_dates)
+        print(f"Missing {len(missing)} dates out of {len(all_dates)}")
+        if not missing:
+            print("No missing dates!")
+            sys.exit(0)
+
+        show = input("Show missing dates? (y/n): ").strip().lower()
+        if show == 'y':
+            for d in missing:
+                print(f"  {d}")
+
+        all_records = []
+        for i, date_str in enumerate(missing):
+            records = scrape_date(date_str)
+            all_records.extend(records)
+            if (i + 1) % 10 == 0:
+                logger.info(f"Progress: {i+1}/{len(missing)} days")
+            time.sleep(1.5)
+
+        if all_records:
+            df = pd.DataFrame(all_records)
+            save_to_excel(df, filename)
+        else:
+            print("No new records.")

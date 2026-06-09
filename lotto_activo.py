@@ -8,7 +8,7 @@ CONFIG = {
     'animales': ANIMALES_38,
     'grupos_animales': GRUPOS_ANIMALES,
     'max_numero': 37,
-    'excel_file': 'LottoActivoCompleto.xlsx',
+    'excel_file': 'LottoActivoINT.xlsx',
     'modelos_dir': 'modelos/lotto_activo',
     'logger_name': 'lotto_activo',
 }
@@ -65,16 +65,13 @@ top_25_general = analizador.top_25_general
 get_parejas_horarias = analizador.get_parejas_horarias
 get_matriz_global_por_animal = analizador.get_matriz_global_por_animal
 get_matriz_hora_por_animal = analizador.get_matriz_hora_por_animal
-get_matriz_combinada_por_animal = analizador.get_matriz_combinada_por_animal
 get_matriz_segundo_orden = analizador.get_matriz_segundo_orden
 main_menu = analizador.main_menu
 
 if __name__ == "__main__":
-    from utils import mostrar_menu
-    import datetime as _dt
+    from utils import auto_scrape_missing_dates, load_and_prepare_data
 
-    datosLotto = CONFIG['excel_file']
-    datos = None
+    excel_file = CONFIG['excel_file']
 
     print(f"Python version: {sys.version}")
 
@@ -83,75 +80,23 @@ if __name__ == "__main__":
         sys.exit(1)
 
     try:
-        datos = pd.read_excel(datosLotto)
+        datos = pd.read_excel(excel_file)
         print(f"Archivo cargado: {len(datos)} registros")
 
-        from scraper_lotto import scrape_date, save_to_excel
+        try:
+            from scraper_lotto import scrape_date, save_to_excel
+            datos = auto_scrape_missing_dates(datos, scrape_date, save_to_excel, excel_file)
+        except Exception as e:
+            print(f"Auto-scraper: error ({e})")
 
-        fechas_existentes = set(pd.to_datetime(datos['Fecha']).dt.strftime("%Y-%m-%d").unique())
-        hoy = _dt.date.today()
-        ultima = _dt.datetime.strptime(max(fechas_existentes), "%Y-%m-%d").date()
-        if ultima < hoy:
-            desde = ultima + _dt.timedelta(days=1)
-            faltantes = []
-            d = desde
-            while d <= hoy:
-                ds = d.strftime("%Y-%m-%d")
-                if ds not in fechas_existentes:
-                    faltantes.append(ds)
-                d += _dt.timedelta(days=1)
-            if faltantes:
-                print(f"Auto-scraper: {len(faltantes)} fechas faltantes ({desde} -> {hoy})")
-                todos = []
-                for i, fs in enumerate(faltantes):
-                    r = scrape_date(fs)
-                    todos.extend(r)
-                    if (i+1) % 10 == 0:
-                        print(f"  Progreso: {i+1}/{len(faltantes)}")
-                    import time
-                    time.sleep(1.5)
-                if todos:
-                    df_nuevo = pd.DataFrame(todos)
-                    save_to_excel(df_nuevo, datosLotto)
-                    datos = pd.read_excel(datosLotto)
-                    print(f"Auto-scraper: {len(df_nuevo)} nuevos registros")
-                else:
-                    print("Auto-scraper: sin nuevos registros")
-    except Exception as e:
-        print(f"Auto-scraper: error ({e})")
-
-    try:
-        datos['Animal'] = datos['Animal'].astype(str).str.strip().str.upper()
-        datos['Numero'] = pd.to_numeric(datos['Numero'], errors='coerce')
-        numeros_invalidos = datos['Numero'].isna().sum()
-        if numeros_invalidos > 0:
-            print(f"  {numeros_invalidos} registros con numeros invalidos")
-
-        datos['Fecha'] = pd.to_datetime(datos['Fecha'], errors='coerce').dt.date
-        datos['Hora'] = datos['Hora'].astype(str).str.strip().str.zfill(8)
-        datos['Timestamp'] = pd.to_datetime(datos['Fecha'].astype(str) + ' ' + datos['Hora'], errors='coerce')
-        tiempos_invalidos = datos['Timestamp'].isna().sum()
-        if tiempos_invalidos > 0:
-            print(f"  {tiempos_invalidos} registros con timestamp invalido")
-
-        datos = datos.dropna(subset=['Timestamp']).reset_index(drop=True)
-        datos['Solo_hora'] = datos['Timestamp'].dt.strftime('%I:%M %p').str.strip()
-        datos = datos.sort_values(by='Timestamp').reset_index(drop=True)
-        datos = analizador.agregar_caracteristicas_avanzadas(datos)
-
-        print("\nRESUMEN DE DATOS:")
-        print(f"  Total registros: {len(datos)}")
-        print(f"  Rango fechas: {datos['Timestamp'].min()} a {datos['Timestamp'].max()}")
-        print(f"  Animales unicos: {datos['Animal'].nunique()}")
-        print(f"  Horas unicas: {datos['Solo_hora'].nunique()}")
-
+        datos = load_and_prepare_data(excel_file, analizador)
         analizador.main_menu(datos)
 
     except FileNotFoundError:
-        print("Archivo no encontrado. Creando archivo de ejemplo...")
+        print(f"Archivo no encontrado. Creando '{excel_file}'...")
         datos = pd.DataFrame(columns=['Fecha', 'Hora', 'Animal', 'Numero'])
-        datos.to_excel(datosLotto, index=False)
-        print(f"Se creo '{datosLotto}'. Agrega datos y ejecuta nuevamente.")
+        datos.to_excel(excel_file, index=False)
+        print(f"Creado '{excel_file}'. Agrega datos y ejecuta nuevamente.")
     except Exception as e:
         print(f"Error critico: {e}")
         import traceback

@@ -183,24 +183,36 @@ class Loteria:
             cur_animal = df.iloc[idx]['Animal']
             cur_hour = df.iloc[idx]['Solo_hora']
             cur_dia = df.iloc[idx]['Dia_Semana']
-            # Update cumulative counts (include current draw)
+            # Calculate probabilities using PREVIOUS data only (no look-ahead)
+            prob_hora_vals.append(
+                (hour_animal_cnt[cur_hour][cur_animal] / hour_total_cnt[cur_hour] * 100)
+                if hour_total_cnt[cur_hour] > 0 else 0.0
+            )
             hour_animal_cnt[cur_hour][cur_animal] += 1
             hour_total_cnt[cur_hour] += 1
-            prob_hora_vals.append(hour_animal_cnt[cur_hour][cur_animal] / hour_total_cnt[cur_hour] * 100)
+
+            prob_dia_vals.append(
+                (dia_animal_cnt[cur_dia][cur_animal] / dia_total_cnt[cur_dia] * 100)
+                if dia_total_cnt[cur_dia] > 0 else 0.0
+            )
             dia_animal_cnt[cur_dia][cur_animal] += 1
             dia_total_cnt[cur_dia] += 1
-            prob_dia_vals.append(dia_animal_cnt[cur_dia][cur_animal] / dia_total_cnt[cur_dia] * 100)
+
             if idx > 0:
                 prev = df.iloc[idx-1]['Animal']
                 if df.iloc[idx-1]['Fecha'] == df.iloc[idx]['Fecha']:
                     trans_cnt[prev][cur_animal] += 1
                     trans_total_cnt[prev] += 1
-                prob_trans_vals.append((trans_cnt[prev][cur_animal] / trans_total_cnt[prev] * 100) if trans_total_cnt[prev] > 0 else 0.0)
+                prob_trans_vals.append(
+                    ((trans_cnt[prev][cur_animal] - 1) / (trans_total_cnt[prev] - 1) * 100)
+                    if (trans_total_cnt[prev] - 1) > 0 else 0.0
+                )
             else:
                 prob_trans_vals.append(0.0)
-            # Frequency of this animal in last 10 draws
-            recent_window.append(cur_animal)
+
+            # Frequency of this animal in last 10 draws (before current)
             freq10_vals.append(recent_window.count(cur_animal))
+            recent_window.append(cur_animal)
             # Draws since this animal last appeared before current draw
             if cur_animal in last_pos:
                 distancia_vals.append(idx - last_pos[cur_animal] - 1)
@@ -448,13 +460,13 @@ class Loteria:
                 self.logger.warning(f"Fold {fold+1} evaluation failed: {e}")
         tiempo_entrenamiento = datetime.now() - start_time
         avg_accuracy = np.mean(accuracies)
-        avg_top28 = np.mean(top25_accuracies)
+        avg_top25 = np.mean(top25_accuracies)
         print(f"\nRESULTADOS {modelo_nombre}:")
         print(f"   Accuracy Promedio: {avg_accuracy:.2%}")
-        print(f"   Top-25 Accuracy: {avg_top28:.2%}")
+        print(f"   Top-25 Accuracy: {avg_top25:.2%}")
         print(f"   Tiempo entrenamiento: {tiempo_entrenamiento}")
         print(f"   Mejor Fold: {max(accuracies):.2%}")
-        self.logger.info(f"Entrenamiento completado: {avg_accuracy:.2%} accuracy, {avg_top28:.2%} top-25")
+        self.logger.info(f"Entrenamiento completado: {avg_accuracy:.2%} accuracy, {avg_top25:.2%} top-25")
         return modelo_optimizado
 
     def guardar_modelo(self, modelo, le_y, metricas, nombre_modelo):
@@ -2269,7 +2281,7 @@ class Loteria:
             ('18:00:00', '19:00:00'),
         ]
 
-    def _construir_matrices_markov(self, datos, incluir_trasnocho=False):
+    def construir_matrices_markov(self, datos, incluir_trasnocho=False):
         """Construye y retorna (trans_count_global, total_global, trans_count_hora, total_hora)."""
         from collections import defaultdict
         parejas = self.get_parejas_horarias()
@@ -2311,7 +2323,7 @@ class Loteria:
 
         return trans_g, total_g, trans_h, total_h
 
-    def _preparar_datos_markov(self, datos):
+    def preparar_datos_markov(self, datos):
         """Asegura que datos tenga las columnas necesarias para construir matrices de Markov."""
         df = datos.copy()
         if 'Animal' not in df.columns:
@@ -2335,8 +2347,8 @@ class Loteria:
         """
         Retorna dict[animal] = [(siguiente, prob %, muestras), ...] top_k de la matriz global.
         """
-        datos = self._preparar_datos_markov(datos)
-        trans_g, total_g, _, _ = self._construir_matrices_markov(datos, incluir_trasnocho=incluir_trasnocho)
+        datos = self.preparar_datos_markov(datos)
+        trans_g, total_g, _, _ = self.construir_matrices_markov(datos, incluir_trasnocho=incluir_trasnocho)
         resultado = {}
         for animal in sorted(self.animales_carac.keys()):
             if animal not in total_g or total_g[animal] == 0:
@@ -2352,7 +2364,7 @@ class Loteria:
         """
         Retorna dict[animal] = [(siguiente, prob %, muestras), ...] top_k para una transicion horaria.
         """
-        _, _, trans_h, total_h = self._construir_matrices_markov(datos, incluir_trasnocho=incluir_trasnocho)
+        _, _, trans_h, total_h = self.construir_matrices_markov(datos, incluir_trasnocho=incluir_trasnocho)
         pareja = (hora_origen, hora_destino)
         resultado = {}
         for animal in sorted(self.animales_carac.keys()):
@@ -2372,30 +2384,9 @@ class Loteria:
         Cuenta pares (prev1, prev2) -> siguiente en sorteos consecutivos del mismo dia.
         """
         from collections import defaultdict
-        datos = self._preparar_datos_markov(datos)
-        trans2 = defaultdict(lambda: defaultdict(int))
-        total2 = defaultdict(int)
-        for fecha, df in datos.groupby('Fecha'):
-            df = df.sort_values('Hora')
-            for i in range(2, len(df)):
-                a1, a2, a3 = df.iloc[i-2]['Animal'], df.iloc[i-1]['Animal'], df.iloc[i]['Animal']
-                par = (a1, a2)
-                trans2[par][a3] += 1
-                total2[par] += 1
-        par = (animal1.upper().strip(), animal2.upper().strip())
-        if par not in total2 or total2[par] == 0:
-            return []
-        total = total2[par]
-        scores = [(a3, cnt / total * 100, cnt) for a3, cnt in trans2[par].items()]
-        scores.sort(key=lambda x: -x[1])
-        return scores[:top_k]
+        datos = self.preparar_datos_markov(datos)
 
-    def get_matriz_combinada_por_animal(self, datos, hora_origen, hora_destino, top_k=25, incluir_trasnocho=False):
-        """
-        Retorna dict[animal] = [(siguiente, prob combinada %), ...]
-        combinando matriz global y por hora con peso variable.
-        """
-        trans_g, total_g, trans_h, total_h = self._construir_matrices_markov(datos, incluir_trasnocho=incluir_trasnocho)
+        trans_g, total_g, trans_h, total_h = self.construir_matrices_markov(datos, incluir_trasnocho=incluir_trasnocho)
         pareja = (hora_origen, hora_destino)
         resultado = {}
         for animal in sorted(self.animales_carac.keys()):

@@ -7,14 +7,16 @@ URL_BASE = "https://loteriadehoy.com/animalito/lottoactivo/historico"
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 SALIDA = "LottoActivoHistorico.xlsx"
 
-# Full animal → number mapping from our existing data
-ANIMAL_A_NUMERO = {
-    "BALLENA":0,"DELFIN":0,"TORO":2,"CIEMPIES":3,"ALACRAN":4,"LEON":5,"RANA":6,"PERICO":7,
-    "RATON":8,"AGUILA":9,"TIGRE":10,"GATO":11,"CABALLO":12,"PALOMA":13,"ZORRO":15,"OSO":16,
-    "PAVO":17,"BURRO":18,"CABRA":19,"COCHINO":20,"GALLO":21,"CAMELLO":22,"CEBRA":23,
-    "IGUANA":24,"GALLINA":25,"VACA":26,"PERRO":27,"ZAMURO":28,"ELEFANTE":29,"CAIMAN":30,
-    "LAPA":31,"ARDILLA":32,"PESCADO":33,"VENADO":34,"JIRAFA":35,"CULEBRA":36,"CARNERO":1
-}
+ANIMALES_38 = [
+    "DELFIN", "BALLENA", "CARNERO", "TORO", "CIEMPIES", "ALACRAN",
+    "LEON", "RANA", "PERICO", "RATON", "AGUILA", "TIGRE", "GATO",
+    "CABALLO", "MONO", "PALOMA", "ZORRO", "OSO", "PAVO", "BURRO",
+    "CHIVO", "COCHINO", "GALLO", "CAMELLO", "CEBRA", "IGUANA",
+    "GALLINA", "VACA", "PERRO", "ZAMURO", "ELEFANTE", "CAIMAN",
+    "LAPA", "ARDILLA", "PESCADO", "VENADO", "JIRAFA", "CULEBRA",
+]
+
+ANIMAL_A_NUMERO = {animal: i for i, animal in enumerate(ANIMALES_38)}
 
 def scrape_semana(fecha_inicio):
     records = []
