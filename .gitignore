@@ -1,5 +1,6 @@
 # Archivos de datos (no subir a GitHub)
 *.xlsx
+!data/*.xlsx
 *.xls
 lotto_backup.json
 lotto.db
