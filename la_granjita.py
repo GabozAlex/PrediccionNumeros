@@ -8,7 +8,7 @@ CONFIG = {
     'animales': ANIMALES_38,
     'grupos_animales': GRUPOS_ANIMALES,
     'max_numero': 37,
-    'excel_file': 'LaGranjita.xlsx',
+    'excel_file': 'data/LaGranjita.xlsx',
     'modelos_dir': 'modelos/la_granjita',
     'logger_name': 'la_granjita',
 }

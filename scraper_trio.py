@@ -11,7 +11,7 @@ URL_BASE = "https://loteriadehoy.com/loteria/trioactivo/historico"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
-SALIDA = "TrioActivo.xlsx"
+SALIDA = "data/TrioActivo.xlsx"
 
 def scrape_semana(fecha_inicio):
     records = []

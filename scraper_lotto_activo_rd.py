@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import os
 
-URL_BASE = "https://www.loteriadehoy.com/animalito/lottoactivordint/resultados/"
+URL_BASE = "https://www.loteriadehoy.com/animalito/lottoactivordominicana/resultados/"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
@@ -16,7 +16,7 @@ HEADERS = {
 def setup_logging():
     if not os.path.exists('logs'):
         os.makedirs('logs')
-    logger = logging.getLogger('lotto_rd_int_scraper')
+    logger = logging.getLogger('lotto_activo_rd_scraper')
     logger.setLevel(logging.INFO)
     if logger.handlers:
         logger.handlers.clear()
@@ -25,7 +25,7 @@ def setup_logging():
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     file_handler = RotatingFileHandler(
-        'logs/lotto_rd_int_scraper.log', maxBytes=10*1024*1024, backupCount=5
+        'logs/lotto_activo_rd_scraper.log', maxBytes=10*1024*1024, backupCount=5
     )
     file_handler.setFormatter(formatter)
     console_handler = logging.StreamHandler()
@@ -37,21 +37,25 @@ def setup_logging():
 logger = setup_logging()
 
 HOUR_MAP_12_TO_24 = {
-    "08:30 AM": "08:30:00",
-    "09:30 AM": "09:30:00",
-    "10:30 AM": "10:30:00",
-    "11:30 AM": "11:30:00",
-    "12:30 PM": "12:30:00",
-    "01:30 PM": "13:30:00",
-    "02:30 PM": "14:30:00",
-    "03:30 PM": "15:30:00",
-    "04:30 PM": "16:30:00",
-    "05:30 PM": "17:30:00",
-    "06:30 PM": "18:30:00",
-    "07:30 PM": "19:30:00",
+    "08:00 AM": "08:00:00",
+    "09:00 AM": "09:00:00",
+    "10:00 AM": "10:00:00",
+    "11:00 AM": "11:00:00",
+    "12:00 PM": "12:00:00",
+    "01:00 PM": "13:00:00",
+    "02:00 PM": "14:00:00",
+    "03:00 PM": "15:00:00",
+    "04:00 PM": "16:00:00",
+    "05:00 PM": "17:00:00",
+    "06:00 PM": "18:00:00",
+    "07:00 PM": "19:00:00",
 }
 
-H5_PREFIXES = ["Lotto Activo Rd Int ", "Lotto Activo Int ", "Lotto Activo Int ( Lotto Internacional ) ", "Lotto Activo Int ("]
+H5_PREFIXES = [
+    "Lotto Activo RD ",
+    "Lotto Activo RDominicana ",
+    "Lotto Activo Dominicana ",
+]
 
 def scrape_date(date_str):
     records = []
@@ -127,7 +131,7 @@ def scrape_range(start_date, end_date, delay=1.5):
     return df
 
 
-def save_to_excel(df, filename="data/LottoActivoRDInt.xlsx"):
+def save_to_excel(df, filename="data/LottoActivoRD.xlsx"):
     existing = None
     if os.path.exists(filename):
         try:
@@ -154,7 +158,7 @@ def save_to_excel(df, filename="data/LottoActivoRDInt.xlsx"):
 
 
 if __name__ == "__main__":
-    print("=== LOTTO ACTIVO RD INT WEB SCRAPER ===")
+    print("=== LOTTO ACTIVO RD WEB SCRAPER ===")
     print("1. Scrape single date")
     print("2. Scrape date range")
     print("3. Find missing dates and scrape")
@@ -182,7 +186,7 @@ if __name__ == "__main__":
             print("No records found.")
 
     elif option == "3":
-        filename = input("Excel filename (default: data/LottoActivoRDInt.xlsx): ").strip() or "data/LottoActivoRDInt.xlsx"
+        filename = input("Excel filename (default: data/LottoActivoRD.xlsx): ").strip() or "data/LottoActivoRD.xlsx"
         if os.path.exists(filename):
             existing = pd.read_excel(filename)
             existing['Fecha'] = pd.to_datetime(existing['Fecha']).dt.strftime("%Y-%m-%d")

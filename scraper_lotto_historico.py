@@ -5,7 +5,7 @@ import os
 
 URL_BASE = "https://loteriadehoy.com/animalito/lottoactivo/historico"
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-SALIDA = "LottoActivoHistorico.xlsx"
+SALIDA = "data/LottoActivoHistorico.xlsx"
 
 ANIMALES_38 = [
     "DELFIN", "BALLENA", "CARNERO", "TORO", "CIEMPIES", "ALACRAN",

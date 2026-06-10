@@ -124,7 +124,7 @@ def scrape_range(start_date, end_date, delay=1.5):
     return df
 
 
-def save_to_excel(df, filename="LaGranjita.xlsx"):
+def save_to_excel(df, filename="data/LaGranjita.xlsx"):
     existing = None
     if os.path.exists(filename):
         try:
@@ -179,7 +179,7 @@ if __name__ == "__main__":
             print("No records found.")
 
     elif option == "3":
-        filename = input("Excel filename (default: LaGranjita.xlsx): ").strip() or "LaGranjita.xlsx"
+        filename = input("Excel filename (default: data/LaGranjita.xlsx): ").strip() or "data/LaGranjita.xlsx"
         if os.path.exists(filename):
             existing = pd.read_excel(filename)
             existing['Fecha'] = pd.to_datetime(existing['Fecha']).dt.strftime("%Y-%m-%d")

@@ -4,13 +4,13 @@ from loteria_base import Loteria
 from utils import ANIMALES_38, GRUPOS_ANIMALES
 
 CONFIG = {
-    'nombre': 'Selva Plus',
+    'nombre': 'Lotto Activo RD',
     'animales': ANIMALES_38,
     'grupos_animales': GRUPOS_ANIMALES,
     'max_numero': 37,
-    'excel_file': 'data/SelvaPlus.xlsx',
-    'modelos_dir': 'modelos/selva_plus',
-    'logger_name': 'selva_plus',
+    'excel_file': 'data/LottoActivoRD.xlsx',
+    'modelos_dir': 'modelos/lotto_activo_rd',
+    'logger_name': 'lotto_activo_rd',
 }
 
 analizador = Loteria(CONFIG)
@@ -89,7 +89,7 @@ if __name__ == "__main__":
         print(f"Archivo cargado: {len(datos)} registros")
 
         try:
-            from scraper_selva_plus import scrape_date, save_to_excel
+            from scraper_lotto_activo_rd import scrape_date, save_to_excel
             datos = auto_scrape_missing_dates(datos, scrape_date, save_to_excel, excel_file)
         except Exception as e:
             print(f"Auto-scraper: error ({e})")

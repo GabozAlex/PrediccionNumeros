@@ -1,19 +1,78 @@
 import sys
+import os
+import datetime
 import pandas as pd
 from loteria_base import Loteria
 from utils import ANIMALES_38, GRUPOS_ANIMALES
 
+CACHE_FILE = 'data/LottoActivoUnificado.xlsx'
+SOURCE_FILES = {
+    'INT': 'data/LottoActivoINT.xlsx',
+    'RD': 'data/LottoActivoRD.xlsx',
+    'RDInt': 'data/LottoActivoRDInt.xlsx',
+}
+
 CONFIG = {
-    'nombre': 'Selva Plus',
+    'nombre': 'Lotto Activo Unificado',
     'animales': ANIMALES_38,
     'grupos_animales': GRUPOS_ANIMALES,
     'max_numero': 37,
-    'excel_file': 'data/SelvaPlus.xlsx',
-    'modelos_dir': 'modelos/selva_plus',
-    'logger_name': 'selva_plus',
+    'excel_file': CACHE_FILE,
+    'modelos_dir': 'modelos/lotto_activo_unificado',
+    'logger_name': 'lotto_activo_unificado',
 }
 
 analizador = Loteria(CONFIG)
+
+
+def _cache_obsoleto():
+    if not os.path.exists(CACHE_FILE):
+        return True
+    cache_mtime = os.path.getmtime(CACHE_FILE)
+    for src in SOURCE_FILES.values():
+        if not os.path.exists(src):
+            continue
+        if os.path.getmtime(src) > cache_mtime:
+            return True
+    return False
+
+
+def _generar_cache():
+    print("Generando cache unificado...")
+    partes = []
+    for origen, path in SOURCE_FILES.items():
+        if not os.path.exists(path):
+            print(f"  AVISO: {path} no encontrado, se omite")
+            continue
+        df = pd.read_excel(path)
+        df['Origen'] = origen
+        partes.append(df)
+        print(f"  {origen}: {len(df)} registros")
+
+    if not partes:
+        print("ERROR: No hay datos de origen para unificar")
+        return None
+
+    combined = pd.concat(partes, ignore_index=True)
+    combined = combined.drop_duplicates(subset=["Fecha", "Hora", "Origen"], keep="last")
+    combined = combined.sort_values(["Fecha", "Hora", "Origen"]).reset_index(drop=True)
+    combined.to_excel(CACHE_FILE, index=False)
+    print(f"Cache guardado: {len(combined)} registros en {CACHE_FILE}")
+    return combined
+
+
+def cargar_datos_unificados():
+    if _cache_obsoleto():
+        print("Cache desactualizado o inexistente. Regenerando...")
+        df = _generar_cache()
+        if df is None:
+            return None
+        return df
+    else:
+        df = pd.read_excel(CACHE_FILE)
+        print(f"Cache cargado: {len(df)} registros")
+        return df
+
 
 verificar_diccionario_animales = analizador.verificar_diccionario_animales
 validar_animal = analizador.validar_animal
@@ -73,8 +132,13 @@ num_int_a_animal = analizador.num_int_a_animal
 animal_a_num_int = analizador.animal_a_num_int
 main_menu = analizador.main_menu
 
+
+def regenerar_cache():
+    return _generar_cache()
+
+
 if __name__ == "__main__":
-    from utils import auto_scrape_missing_dates, load_and_prepare_data
+    from utils import load_and_prepare_data
 
     excel_file = CONFIG['excel_file']
 
@@ -85,23 +149,14 @@ if __name__ == "__main__":
         sys.exit(1)
 
     try:
-        datos = pd.read_excel(excel_file)
-        print(f"Archivo cargado: {len(datos)} registros")
-
-        try:
-            from scraper_selva_plus import scrape_date, save_to_excel
-            datos = auto_scrape_missing_dates(datos, scrape_date, save_to_excel, excel_file)
-        except Exception as e:
-            print(f"Auto-scraper: error ({e})")
+        datos = cargar_datos_unificados()
+        if datos is None:
+            print("No hay datos para trabajar.")
+            sys.exit(1)
 
         datos = load_and_prepare_data(excel_file, analizador)
         analizador.main_menu(datos)
 
-    except FileNotFoundError:
-        print(f"Archivo no encontrado. Creando '{excel_file}'...")
-        datos = pd.DataFrame(columns=['Fecha', 'Hora', 'Animal', 'Numero'])
-        datos.to_excel(excel_file, index=False)
-        print(f"Creado '{excel_file}'. Agrega datos y ejecuta nuevamente.")
     except Exception as e:
         print(f"Error critico: {e}")
         import traceback

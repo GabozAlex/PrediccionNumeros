@@ -23,6 +23,16 @@ LOTTERIES = [
         'module': 'lotto_rd_int',
         'analizador': None,
     },
+    {
+        'name': 'Lotto Activo RD',
+        'module': 'lotto_activo_rd',
+        'analizador': None,
+    },
+    {
+        'name': 'Lotto Activo Unificado',
+        'module': 'lotto_activo_unificado',
+        'analizador': None,
+    },
 ]
 
 

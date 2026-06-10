@@ -8,7 +8,7 @@ CONFIG = {
     'animales': ANIMALES_38,
     'grupos_animales': GRUPOS_ANIMALES,
     'max_numero': 37,
-    'excel_file': 'LottoActivoINT.xlsx',
+    'excel_file': 'data/LottoActivoINT.xlsx',
     'modelos_dir': 'modelos/lotto_activo',
     'logger_name': 'lotto_activo',
 }

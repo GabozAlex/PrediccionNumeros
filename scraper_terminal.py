@@ -9,7 +9,7 @@ import os
 
 URL_BASE = "https://loteriadehoy.com/terminal/terminaltrio/historico"
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-SALIDA = "TerminalTrio.xlsx"
+SALIDA = "data/TerminalTrio.xlsx"
 
 def scrape_semana(fecha_inicio):
     records = []

@@ -20,10 +20,10 @@ CONFIG = {
 }
 
 EXCEL_FILES = [
-    'LottoActivoINT.xlsx',
-    'LottoActivoRDInt.xlsx',
-    'SelvaPlus.xlsx',
-    'LaGranjita.xlsx',
+    'data/LottoActivoINT.xlsx',
+    'data/LottoActivoRDInt.xlsx',
+    'data/SelvaPlus.xlsx',
+    'data/LaGranjita.xlsx',
 ]
 
 FEATURES = [

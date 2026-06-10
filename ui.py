@@ -13,16 +13,22 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+from utils import ANIMAL_A_NUM_INT
+
 import lotto_activo
 import la_granjita
 import selva_plus
 import lotto_rd_int
+import lotto_activo_rd
+import lotto_activo_unificado
 
 LOTTERY_MODULES = {
     "Lotto Activo": lotto_activo,
     "La Granjita": la_granjita,
     "Selva Plus": selva_plus,
     "Lotto Activo Rd Int": lotto_rd_int,
+    "Lotto Activo RD": lotto_activo_rd,
+    "Lotto Activo Unificado": lotto_activo_unificado,
 }
 
 
@@ -150,6 +156,9 @@ class LottoPredictorUI:
             datos = datos.dropna(subset=['Timestamp']).reset_index(drop=True)
             datos['Solo_hora'] = datos['Timestamp'].dt.strftime('%I:%M %p').str.strip()
             datos = datos.sort_values(by='Timestamp').reset_index(drop=True)
+            datos['Num_Int'] = datos['Animal'].map(ANIMAL_A_NUM_INT)
+            datos = datos.dropna(subset=['Num_Int']).reset_index(drop=True)
+            datos['Num_Int'] = datos['Num_Int'].astype(int)
             datos = analizador.agregar_caracteristicas_avanzadas(datos)
             self.datos[nombre] = datos
             print(f"Datos cargados: {nombre} - {len(datos)} registros")
@@ -1316,6 +1325,8 @@ class LottoPredictorUI:
                     from scraper_selva_plus import scrape_date, save_to_excel
                 elif nombre == "Lotto Activo Rd Int":
                     from scraper_lotto_rd_int import scrape_date, save_to_excel
+                elif nombre == "Lotto Activo RD":
+                    from scraper_lotto_activo_rd import scrape_date, save_to_excel
                 else:
                     return
 
@@ -1347,10 +1358,11 @@ class LottoPredictorUI:
         self.root.after(0, lambda: text.delete("1.0", tk.END))
         with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
             scrapers = {
-                "Lotto Activo": ("scraper_lotto", "LottoActivoCompleto.xlsx"),
-                "La Granjita": ("scraper_la_granjita", "LaGranjita.xlsx"),
-                "Selva Plus": ("scraper_selva_plus", "SelvaPlus.xlsx"),
-                "Lotto Activo Rd Int": ("scraper_lotto_rd_int", "LottoActivoRDInt.xlsx"),
+                "Lotto Activo": ("scraper_lotto", "data/LottoActivoINT.xlsx"),
+                "La Granjita": ("scraper_la_granjita", "data/LaGranjita.xlsx"),
+                "Selva Plus": ("scraper_selva_plus", "data/SelvaPlus.xlsx"),
+                "Lotto Activo Rd Int": ("scraper_lotto_rd_int", "data/LottoActivoRDInt.xlsx"),
+                "Lotto Activo RD": ("scraper_lotto_activo_rd", "data/LottoActivoRD.xlsx"),
             }
             for nombre, (mod_name, excel_file) in scrapers.items():
                 try:
@@ -1436,6 +1448,8 @@ class LottoPredictorUI:
                 from scraper_selva_plus import scrape_date, save_to_excel
             elif nombre == "Lotto Activo Rd Int":
                 from scraper_lotto_rd_int import scrape_date, save_to_excel
+            elif nombre == "Lotto Activo RD":
+                from scraper_lotto_activo_rd import scrape_date, save_to_excel
             else:
                 return
 
@@ -1498,6 +1512,8 @@ class LottoPredictorUI:
                 from scraper_selva_plus import scrape_range, save_to_excel
             elif nombre == "Lotto Activo Rd Int":
                 from scraper_lotto_rd_int import scrape_range, save_to_excel
+            elif nombre == "Lotto Activo RD":
+                from scraper_lotto_activo_rd import scrape_range, save_to_excel
             else:
                 return
 
