@@ -7,35 +7,14 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import os
-from utils import get_requests_session, HORA_MAP_12_TO_24
+from utils import get_requests_session, HORA_MAP_12_TO_24, setup_logging
 
 URL_BASE = "https://www.loteriadehoy.com/animalito/lottoactivo/resultados/"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
-def setup_logging():
-    if not os.path.exists('logs'):
-        os.makedirs('logs')
-    logger = logging.getLogger('lotto_scraper')
-    logger.setLevel(logging.INFO)
-    if logger.handlers:
-        logger.handlers.clear()
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler = RotatingFileHandler(
-        'logs/lotto_scraper.log', maxBytes=10*1024*1024, backupCount=5
-    )
-    file_handler.setFormatter(formatter)
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-    return logger
-
-logger = setup_logging()
+logger = setup_logging('lotto_scraper')
 
 HOUR_MAP_12_TO_24 = {
     "08:00 AM": "08:00:00",

@@ -4,6 +4,7 @@ import datetime
 import logging
 from logging.handlers import RotatingFileHandler
 import requests
+from utils import setup_logging
 from bs4 import BeautifulSoup
 import pandas as pd
 import os
@@ -30,28 +31,7 @@ HOUR_MAP_12_TO_24 = {
     "07:00 PM": "19:00:00",
 }
 
-def setup_logging():
-    if not os.path.exists('logs'):
-        os.makedirs('logs')
-    logger = logging.getLogger('la_granjita_scraper')
-    logger.setLevel(logging.INFO)
-    if logger.handlers:
-        logger.handlers.clear()
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler = RotatingFileHandler(
-        'logs/la_granjita_scraper.log', maxBytes=10*1024*1024, backupCount=5
-    )
-    file_handler.setFormatter(formatter)
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-    return logger
-
-logger = setup_logging()
+logger = setup_logging('la_granjita_scraper')
 
 def scrape_date(date_str, session=None, timeout: int = 30):
     records = []
