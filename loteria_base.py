@@ -1095,15 +1095,15 @@ class Loteria:
                 tot_hh = total_h[pareja_h][ultimo_num]
                 if tot_hh > 0:
                     markov_hora_scores = {n2: cnt / tot_hh * 100 for n2, cnt in trans_h[pareja_h][ultimo_num].items()}
-            # Fill to 25 with global Markov probabilities
+            # Fill to 25 with global Markov probabilities (by highest prob, not numeric order)
             if len(markov_hora_scores) < 25 and ultimo_num in trans_total and trans_total[ultimo_num] > 0:
-                for n2 in range(38):
-                    if n2 not in markov_hora_scores:
-                        p = trans_prob.get((ultimo_num, n2), 0)
-                        if p > 0:
-                            markov_hora_scores[n2] = p
-                            if len(markov_hora_scores) >= 25:
-                                break
+                candidates = [(n2, trans_prob.get((ultimo_num, n2), 0)) for n2 in range(38)
+                              if n2 not in markov_hora_scores and trans_prob.get((ultimo_num, n2), 0) > 0]
+                candidates.sort(key=lambda x: x[1], reverse=True)
+                for n2, p in candidates:
+                    markov_hora_scores[n2] = p
+                    if len(markov_hora_scores) >= 25:
+                        break
             if len(markov_hora_scores) < 25:
                 for n2, pct in global_freq.items():
                     if n2 not in markov_hora_scores:
@@ -1281,15 +1281,15 @@ class Loteria:
                     markov_hora_scores[n2] = cnt / tot_h * 100
         if not markov_hora_scores:
             return False
-        # Fill to 25 with global Markov probabilities
+        # Fill to 25 with global Markov probabilities (by highest prob, not numeric order)
         if len(markov_hora_scores) < 25 and trans_prob is not None and trans_total is not None and ultimo_num in trans_total and trans_total[ultimo_num] > 0:
-            for n2 in range(38):
-                if n2 not in markov_hora_scores:
-                    p = trans_prob.get((ultimo_num, n2), 0)
-                    if p > 0:
-                        markov_hora_scores[n2] = p
-                        if len(markov_hora_scores) >= 25:
-                            break
+            candidates = [(n2, trans_prob.get((ultimo_num, n2), 0)) for n2 in range(38)
+                          if n2 not in markov_hora_scores and trans_prob.get((ultimo_num, n2), 0) > 0]
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            for n2, p in candidates:
+                markov_hora_scores[n2] = p
+                if len(markov_hora_scores) >= 25:
+                    break
         if len(markov_hora_scores) < 25:
             global_freq = df['Num_Int'].value_counts(normalize=True).mul(100)
             for n2, pct in global_freq.items():
@@ -1322,15 +1322,19 @@ class Loteria:
                     markov_hora_scores[n2] = cnt / tot_hh * 100
         if not markov_hora_scores and not markov_scores:
             return False
-        # Fill MkHora to top_k
+        # Fill MkHora to top_k (by highest global prob, not numeric order)
         if len(markov_hora_scores) < top_k and ultimo_num in trans_total and trans_total[ultimo_num] > 0:
+            candidates = []
             for n2 in range(38):
                 if n2 not in markov_hora_scores:
                     p = trans_prob.get((ultimo_num, n2), 0)
                     if p > 0:
-                        markov_hora_scores[n2] = p
-                        if len(markov_hora_scores) >= top_k:
-                            break
+                        candidates.append((n2, p))
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            for n2, p in candidates:
+                markov_hora_scores[n2] = p
+                if len(markov_hora_scores) >= top_k:
+                    break
         if len(markov_hora_scores) < top_k:
             gf = df['Num_Int'].value_counts(normalize=True).mul(100)
             for n2, pct in gf.items():
@@ -1501,13 +1505,13 @@ class Loteria:
                 for n2, cnt in trans_h[pareja_h][ultimo_num].items():
                     mh_scores[n2] = cnt / tot * 100
         if len(mh_scores) < top_k and ultimo_num in trans_total and trans_total[ultimo_num] > 0:
-            for n2 in range(38):
-                if n2 not in mh_scores:
-                    p = trans_prob.get((ultimo_num, n2), 0)
-                    if p > 0:
-                        mh_scores[n2] = p
-                        if len(mh_scores) >= top_k:
-                            break
+            candidates = [(n2, trans_prob.get((ultimo_num, n2), 0)) for n2 in range(38)
+                          if n2 not in mh_scores and trans_prob.get((ultimo_num, n2), 0) > 0]
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            for n2, p in candidates:
+                mh_scores[n2] = p
+                if len(mh_scores) >= top_k:
+                    break
         if len(mh_scores) < top_k:
             gf = df['Num_Int'].value_counts(normalize=True).mul(100)
             for n2, pct in gf.items():
@@ -1643,13 +1647,13 @@ class Loteria:
                         for n2, cnt in trans_h_g[pareja][ul].items():
                             scores[n2] = cnt / tot * 100
                 if len(scores) < top_k and ul in trans_total and trans_total[ul] > 0:
-                    for n2 in range(38):
-                        if n2 not in scores:
-                            p = trans_prob.get((ul, n2), 0)
-                            if p > 0:
-                                scores[n2] = p
-                                if len(scores) >= top_k:
-                                    break
+                    candidates = [(n2, trans_prob.get((ul, n2), 0)) for n2 in range(38)
+                                  if n2 not in scores and trans_prob.get((ul, n2), 0) > 0]
+                    candidates.sort(key=lambda x: x[1], reverse=True)
+                    for n2, p in candidates:
+                        scores[n2] = p
+                        if len(scores) >= top_k:
+                            break
                 if len(scores) < top_k:
                     gf = df['Num_Int'].value_counts(normalize=True).mul(100)
                     for n2, pct in gf.items():
@@ -1709,13 +1713,13 @@ class Loteria:
                         for n2, cnt in th_d[pareja][ul].items():
                             scores[n2] = cnt / tot * 100
                 if len(scores) < top_k and ul in trans_total and trans_total[ul] > 0:
-                    for n2 in range(38):
-                        if n2 not in scores:
-                            p = trans_prob.get((ul, n2), 0)
-                            if p > 0:
-                                scores[n2] = p
-                                if len(scores) >= top_k:
-                                    break
+                    candidates = [(n2, trans_prob.get((ul, n2), 0)) for n2 in range(38)
+                                  if n2 not in scores and trans_prob.get((ul, n2), 0) > 0]
+                    candidates.sort(key=lambda x: x[1], reverse=True)
+                    for n2, p in candidates:
+                        scores[n2] = p
+                        if len(scores) >= top_k:
+                            break
                 if len(scores) < top_k:
                     for n2, pct in global_freq.items():
                         if n2 not in scores:
@@ -1919,12 +1923,12 @@ class Loteria:
                     for n2, cnt in trans_h[pareja_h][ul].items():
                         mh_scores[n2] = cnt / tot * 100
             if len(mh_scores) < top_k and ul in trans_total and trans_total[ul] > 0:
-                for n2 in range(38):
-                    if n2 not in mh_scores:
-                        p = trans_prob.get((ul, n2), 0)
-                        if p > 0:
-                            mh_scores[n2] = p
-                            if len(mh_scores) >= top_k: break
+                candidates = [(n2, trans_prob.get((ul, n2), 0)) for n2 in range(38)
+                              if n2 not in mh_scores and trans_prob.get((ul, n2), 0) > 0]
+                candidates.sort(key=lambda x: x[1], reverse=True)
+                for n2, p in candidates:
+                    mh_scores[n2] = p
+                    if len(mh_scores) >= top_k: break
             if len(mh_scores) < top_k:
                 gf = df['Num_Int'].value_counts(normalize=True).mul(100)
                 for n2, pct in gf.items():
