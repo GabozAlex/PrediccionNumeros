@@ -8,10 +8,25 @@ import time
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 
+import traceback
+
 import pandas as pd
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
+
+def _safe_thread(tarea_func, ventana, txt):
+    """Wraps a thread tarea_func to catch and display exceptions."""
+    def wrapper():
+        try:
+            tarea_func()
+        except Exception:
+            err = traceback.format_exc()
+            ventana.after(0, lambda: (
+                txt.delete("1.0", tk.END),
+                txt.insert(tk.END, f"ERROR:\n{err}")
+            ))
+    return wrapper
 
 from utils import ANIMAL_A_NUM_INT
 
@@ -67,6 +82,31 @@ class RedirectText:
         pass
 
 
+class ToolTip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tip_window = None
+        widget.bind('<Enter>', self.enter)
+        widget.bind('<Leave>', self.leave)
+
+    def enter(self, event=None):
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        label = ttk.Label(tw, text=self.text, justify=tk.LEFT,
+                          background="#ffffcc", relief=tk.SOLID, borderwidth=1,
+                          wraplength=350, padding=5)
+        label.pack()
+
+    def leave(self, event=None):
+        if self.tip_window:
+            self.tip_window.destroy()
+            self.tip_window = None
+
+
 class LottoPredictorUI:
     def __init__(self, root):
         self.root = root
@@ -82,8 +122,8 @@ class LottoPredictorUI:
         self.modelos_xgb = {}
         self.le_y_xgb = {}
         self.current_lottery = "Lotto Activo"
-        self._paneles = {}
 
+        self._configurar_estilos()
         self._build_ui()
         self._cargar_loteria("Lotto Activo")
         self._auto_cargar_modelos()
@@ -98,6 +138,39 @@ class LottoPredictorUI:
     def _get_config(self):
         mod = self._get_mod()
         return mod.CONFIG if mod else None
+
+    def _configurar_estilos(self):
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure('Analisis.TButton', font=('', 9), padding=6)
+        style.configure('Markov.TButton', font=('', 9), padding=6)
+        style.configure('ML.TButton', font=('', 9), padding=6)
+        style.configure('Scraper.TButton', font=('', 9), padding=6)
+        style.configure('Experimentacion.TButton', font=('', 9), padding=6, foreground='#2E7D32')
+        style.configure('Evaluacion.TButton', font=('', 9, 'bold'), padding=6, foreground='#1565C0')
+        style.configure('TLabelframe.Label', font=('', 10, 'bold'))
+
+    def _crear_ventana_salida(self, titulo, ancho=750, alto=620):
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"{titulo} - {self.current_lottery}")
+        ventana.geometry(f"{ancho}x{alto}")
+        ventana.minsize(500, 300)
+        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        txt.insert(tk.END, f"Cargando {titulo.lower()}...\n")
+        return ventana, txt
+
+    def _ejecutar_en_ventana(self, txt, func):
+        def tarea():
+            redir = RedirectText(txt)
+            with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
+                try:
+                    func()
+                except Exception as e:
+                    print(f"Error: {e}")
+            txt.after(0, lambda: txt.see(tk.END))
+        hilo = threading.Thread(target=tarea, daemon=True)
+        hilo.start()
 
     def _build_ui(self):
         top_frame = ttk.Frame(self.root)
@@ -196,73 +269,129 @@ class LottoPredictorUI:
     def _get_datos(self):
         return self.datos.get(self.current_lottery)
 
-    def _crear_paned_grid(self, tab):
-        """Reemplaza grid 2x2 con PanedWindow arrastrable. Retorna [[(0,0),(0,1)],[(1,0),(1,1)]]"""
-        outer = ttk.PanedWindow(tab, orient=tk.HORIZONTAL)
-        outer.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        left = ttk.PanedWindow(outer, orient=tk.VERTICAL)
-        right = ttk.PanedWindow(outer, orient=tk.VERTICAL)
-        outer.add(left, weight=1)
-        outer.add(right, weight=1)
-        tl = ttk.Frame(left, relief=tk.RIDGE, borderwidth=1)
-        bl = ttk.Frame(left, relief=tk.RIDGE, borderwidth=1)
-        tr = ttk.Frame(right, relief=tk.RIDGE, borderwidth=1)
-        br = ttk.Frame(right, relief=tk.RIDGE, borderwidth=1)
-        left.add(tl, weight=1)
-        left.add(bl, weight=1)
-        right.add(tr, weight=1)
-        right.add(br, weight=1)
-        return [[tl, tr], [bl, br]]
-
-    def _agregar_panel_salida(self, parent, label, name, row, column, columnspan=1):
-        frame = parent[row][column]
-        ttk.Label(frame, text=label, font=("", 8, "bold")).pack(anchor=tk.W, padx=2)
-        text = scrolledtext.ScrolledText(frame, wrap=tk.WORD, font=("Courier", 8))
-        text.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
-        self._paneles[name] = text
-        return text
-
-    def _ejecutar_en_hilo(self, func, text_widget, *args):
-        def tarea():
-            self.root.after(0, lambda: (text_widget.delete("1.0", tk.END), text_widget.insert(tk.END, f"{'='*70}\n")))
-            redir = RedirectText(text_widget)
-            with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
-                try:
-                    func(*args)
-                except Exception as e:
-                    print(f"Error: {e}")
-        hilo = threading.Thread(target=tarea, daemon=True)
-        hilo.start()
-
     # ================ TAB: DASHBOARD ================
 
     def _tab_crear_dashboard(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Dashboard")
 
-        frame_btn = ttk.Frame(tab)
-        frame_btn.pack(fill=tk.X, padx=5, pady=5)
+        group = ttk.LabelFrame(tab, text="📊 Analisis Rapido", padding=10)
+        group.pack(fill=tk.X, padx=10, pady=10)
 
         btns = [
-            ("Estado Rapido del Dia", "dash_estado"),
-            ("Ultimos Registros", "dash_ultimos"),
-            ("Aciertos x Dia Semana", "dash_aciertos_dia"),
-            ("Aciertos x Hora", "dash_aciertos_hora"),
+            ("Estado del Dia", "Muestra sorteos de hoy, horas pendientes y resumen rapido"),
+            ("Ultimos Registros", "Ultimos 10 sorteos, faltantes de hoy, numeros calientes/frios"),
         ]
-        for texto, accion in btns:
-            btn = ttk.Button(frame_btn, text=texto, command=lambda a=accion: self._dashboard_accion(a))
-            btn.pack(side=tk.LEFT, padx=2)
+        btn_frame = ttk.Frame(group)
+        btn_frame.pack(fill=tk.X, pady=(0, 5))
+        for texto, tip in btns:
+            btn = ttk.Button(btn_frame, text=texto, style='Analisis.TButton',
+                             command=lambda t=texto: self._dashboard_dialogo(t))
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
 
-        grid = self._crear_paned_grid(tab)
+        btns2 = [
+            ("Aciertos x Dia", "% de aciertos GxHora por dia de la semana"),
+            ("Fallos x Dia", "% de fallos GxHora por dia de la semana"),
+        ]
+        btn_frame2 = ttk.Frame(group)
+        btn_frame2.pack(fill=tk.X, pady=(0, 5))
+        for texto, tip in btns2:
+            btn = ttk.Button(btn_frame2, text=texto, style='Analisis.TButton',
+                             command=lambda t=texto: self._dashboard_dialogo(t))
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
 
-        self._agregar_panel_salida(grid, "Estado Rapido del Dia", "dash_estado", 0, 0)
-        self._agregar_panel_salida(grid, "Ultimos Registros", "dash_ultimos", 0, 1)
-        self._agregar_panel_salida(grid, "Aciertos x Dia Semana", "dash_aciertos_dia", 1, 0)
-        self._agregar_panel_salida(grid, "Aciertos x Hora", "dash_aciertos_hora", 1, 1)
+        btns3 = [
+            ("Aciertos x Hora", "% de aciertos GxHora por hora del dia"),
+            ("Fallos x Hora", "% de fallos GxHora por hora del dia"),
+        ]
+        btn_frame3 = ttk.Frame(group)
+        btn_frame3.pack(fill=tk.X)
+        for texto, tip in btns3:
+            btn = ttk.Button(btn_frame3, text=texto, style='Analisis.TButton',
+                             command=lambda t=texto: self._dashboard_dialogo(t))
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
 
-        self.root.after(500, lambda: self._dashboard_accion("dash_estado"))
+        group_exp = ttk.LabelFrame(tab, text="🔬 Experimentacion", padding=10)
+        group_exp.pack(fill=tk.X, padx=10, pady=(0, 10))
 
-    def _dashboard_accion(self, accion):
+        exp_btns1 = [
+            ("Evaluar Markov x Dia", "Evalua Markov segmentado por dia de semana"),
+            ("GxHora + Filtro Dia", "Predice con GxHora filtrando solo numeros que han salido en este dia de semana"),
+        ]
+        exp_frame1 = ttk.Frame(group_exp)
+        exp_frame1.pack(fill=tk.X, pady=(0, 5))
+        for texto, tip in exp_btns1:
+            btn = ttk.Button(exp_frame1, text=texto, style='Experimentacion.TButton',
+                             command=lambda t=texto: self._dashboard_dialogo(t))
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
+
+        exp_btns2 = [
+            ("Evaluar GxHora+Filtro", "Compara GxHora normal vs GxHora con filtro por dia de semana"),
+            ("MkHora + Dia", "Predice combinando Markov x Hora + dia de semana (triplas)"),
+        ]
+        exp_frame2 = ttk.Frame(group_exp)
+        exp_frame2.pack(fill=tk.X, pady=(0, 5))
+        for texto, tip in exp_btns2:
+            btn = ttk.Button(exp_frame2, text=texto, style='Experimentacion.TButton',
+                             command=lambda t=texto: self._dashboard_dialogo(t))
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
+
+        exp_btns3 = [
+            ("Evaluar MkHora+Dia", "Compara MkHora normal vs MkHora+Dia (fragmentado por dia de semana)"),
+        ]
+        exp_frame3 = ttk.Frame(group_exp)
+        exp_frame3.pack(fill=tk.X)
+        for texto, tip in exp_btns3:
+            btn = ttk.Button(exp_frame3, text=texto, style='Experimentacion.TButton',
+                             command=lambda t=texto: self._dashboard_dialogo(t))
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
+
+        group_eval = ttk.LabelFrame(tab, text="📊 Evaluaciones", padding=10)
+        group_eval.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+        eval_btns1 = [
+            ("Markov Global", "% acierto global, por hora, por dia, mejor/peor"),
+            ("Frec. x Hora", "% acierto de frecuencia historica por hora"),
+        ]
+        eval_frame1 = ttk.Frame(group_eval)
+        eval_frame1.pack(fill=tk.X, pady=(0, 5))
+        for texto, tip in eval_btns1:
+            btn = ttk.Button(eval_frame1, text=texto, style='Evaluacion.TButton',
+                             command=lambda t=texto: self._dashboard_dialogo(t))
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
+
+        eval_btns2 = [
+            ("Markov x Hora", "% acierto de Markov x Hora (MkHora)"),
+            ("GxHora", "% acierto de GxHora (Markov + MkHora combinado)"),
+        ]
+        eval_frame2 = ttk.Frame(group_eval)
+        eval_frame2.pack(fill=tk.X, pady=(0, 5))
+        for texto, tip in eval_btns2:
+            btn = ttk.Button(eval_frame2, text=texto, style='Evaluacion.TButton',
+                             command=lambda t=texto: self._dashboard_dialogo(t))
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
+
+        eval_btns3 = [
+            ("Markov x Dia", "% acierto de Markov segmentado por dia de semana"),
+            ("Evaluar Top-5 Completo", "Tabla detallada con los 5 modelos: fecha, predicho, real, hits, ranks"),
+        ]
+        eval_frame3 = ttk.Frame(group_eval)
+        eval_frame3.pack(fill=tk.X)
+        for texto, tip in eval_btns3:
+            btn = ttk.Button(eval_frame3, text=texto, style='Evaluacion.TButton',
+                             command=lambda t=texto: self._dashboard_dialogo(t))
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
+
+    def _dashboard_dialogo(self, texto):
         datos = self._get_datos()
         if datos is None or datos.empty:
             messagebox.showwarning("Sin datos", "No hay datos cargados")
@@ -271,18 +400,29 @@ class LottoPredictorUI:
         analizador = self._get_analizador()
         if not analizador:
             return
-        panel = self._paneles.get(accion)
-        if panel is None:
-            return
+        ventana, txt = self._crear_ventana_salida(texto)
         mapa = {
-            "dash_estado": lambda: analizador.ver_estado_actual_dia(d),
-            "dash_ultimos": lambda: analizador.ver_ultimos_registros_y_faltantes(d),
-            "dash_aciertos_dia": lambda: analizador.analizar_aciertos_por_dia_semana(d),
-            "dash_aciertos_hora": lambda: analizador.analizar_aciertos_por_hora(d),
+            "Estado del Dia": lambda: analizador.ver_estado_actual_dia(d),
+            "Ultimos Registros": lambda: analizador.ver_ultimos_registros_y_faltantes(d),
+            "Aciertos x Dia": lambda: analizador.analizar_aciertos_por_dia_semana(d),
+            "Fallos x Dia": lambda: analizador.analizar_fallos_por_dia_semana(d),
+            "Aciertos x Hora": lambda: analizador.analizar_aciertos_por_hora(d),
+            "Fallos x Hora": lambda: analizador.analizar_fallos_por_hora(d),
+            "Evaluar Markov x Dia": lambda: analizador.evaluar_markov_dia_semana(d),
+            "GxHora + Filtro Dia": lambda: analizador.prediccion_gxhora_filtro_dia(d),
+            "Evaluar GxHora+Filtro": lambda: analizador.evaluar_gxhora_filtro_dia(d),
+            "MkHora + Dia": lambda: analizador.prediccion_markov_hora_dia(d),
+            "Evaluar MkHora+Dia": lambda: analizador.evaluar_markov_hora_dia(d),
+            "Markov Global": lambda: analizador.evaluar_markov_global(d),
+            "Frec. x Hora": lambda: analizador.evaluar_frecuencia_hora(d),
+            "Markov x Hora": lambda: analizador.evaluar_markov_hora(d),
+            "GxHora": lambda: analizador.evaluar_gxhora(d),
+            "Markov x Dia": lambda: analizador.evaluar_markov_dia_semana(d),
+            "Evaluar Top-5 Completo": lambda: analizador.evaluar_top5_completo(d),
         }
-        func = mapa.get(accion)
+        func = mapa.get(texto)
         if func:
-            self._ejecutar_en_hilo(func, panel)
+            self._ejecutar_en_ventana(txt, func)
 
     # ================ TAB: PREDICCION ================
 
@@ -290,18 +430,77 @@ class LottoPredictorUI:
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Prediccion")
 
-        frame_btn = ttk.Frame(tab)
-        frame_btn.pack(fill=tk.X, padx=5, pady=5)
+        grupo_markov = ttk.LabelFrame(tab, text="🔮 Markov", padding=8)
+        grupo_markov.pack(fill=tk.X, padx=10, pady=(10, 5))
 
-        ttk.Button(frame_btn, text="Markov", command=self._dialogo_markov).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_btn, text="Prob. x Hora", command=self._dialogo_prob_hora).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_btn, text="Markov x Hora", command=self._dialogo_markov_hora).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_btn, text="Global x Hora", command=self._ventana_matriz_combinada).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_btn, text="Predecir Siguiente (M+H)", command=self._predecir_siguiente_mh_dialogo).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_btn, text="Top-25 General", command=lambda: self._panel_top25()).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_btn, text="Patrones", command=self._dialogo_patrones).pack(side=tk.LEFT, padx=2)
+        row1 = ttk.Frame(grupo_markov)
+        row1.pack(fill=tk.X, pady=2)
+        row2 = ttk.Frame(grupo_markov)
+        row2.pack(fill=tk.X, pady=2)
 
-    def _panel_top25(self):
+        markov_btns = [
+            ("Matriz Global", self._dialogo_markov, "Dado un numero, muestra los que mas le siguen (Markov global)"),
+            ("Prob. x Hora", self._dialogo_prob_hora, "Frecuencia de cada numero para una hora especifica"),
+            ("Markov x Hora", self._dialogo_markov_hora, "Dado animal+hora, muestra los siguientes mas probables"),
+        ]
+        for texto, cmd, tip in markov_btns:
+            btn = ttk.Button(row1, text=texto, style='Markov.TButton', command=cmd)
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
+
+        markov_btns2 = [
+            ("Global + Hora", self._ventana_matriz_combinada, "Combinacion ponderada de Markov global y por hora"),
+            ("Siguiente M+H", self._predecir_siguiente_mh_dialogo, "Predice el proximo numero usando Markov + frecuencia por hora"),
+        ]
+        for texto, cmd, tip in markov_btns2:
+            btn = ttk.Button(row2, text=texto, style='Markov.TButton', command=cmd)
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
+
+        row3 = ttk.Frame(grupo_markov)
+        row3.pack(fill=tk.X, pady=2)
+
+        markov_btns3 = [
+            ("Co-ocurrencia", self._dialogo_coocurrencia, "Predice mostrando numeros que suelen salir el mismo dia que el numero actual"),
+            ("Full (4 fuentes)", self._dialogo_full, "Predice combinando Markov global, Markov x hora, frecuencia x hora y co-ocurrencia"),
+            ("Markov x Dia", self._dialogo_markov_dia_semana, "Predice usando matriz de Markov del dia de la semana actual"),
+        ]
+        for texto, cmd, tip in markov_btns3:
+            btn = ttk.Button(row3, text=texto, style='Markov.TButton', command=cmd)
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
+
+        grupo_rank = ttk.LabelFrame(tab, text="📋 Rankings y Patrones", padding=8)
+        grupo_rank.pack(fill=tk.X, padx=10, pady=5)
+
+        row_r1 = ttk.Frame(grupo_rank)
+        row_r1.pack(fill=tk.X, pady=2)
+        row_r2 = ttk.Frame(grupo_rank)
+        row_r2.pack(fill=tk.X, pady=2)
+
+        rank_btns = [
+            ("Top-25 General", self._dialogo_top25, "Ranking global de los 25 numeros mas frecuentes"),
+            ("Co-ocurrencias", self._patron_coocurrencias, "Analiza que numeros suelen salir juntos en un mismo dia"),
+            ("Rango Horario", self._patron_rango, "Analiza co-ocurrencias segmentadas por rango de hora"),
+            ("Dia Semana", self._patron_dia_semana, "Frecuencia de cada numero segun el dia de la semana"),
+        ]
+        for texto, cmd, tip in rank_btns:
+            btn = ttk.Button(row_r1, text=texto, style='Markov.TButton', command=cmd)
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
+
+        rank_btns2 = [
+            ("Rachas", self._patron_rachas, "Analiza secuencias de aciertos y fallos por cada numero"),
+            ("Comparar", self._patron_comparar, "Compara rendimiento de estrategias: global, hora, frecuencia"),
+            ("Cadena Dia", self._dialogo_cadena, "Muestra la secuencia completa de numeros de un dia especifico"),
+            ("2do Orden", self._dialogo_segundo_orden, "Matriz Markov de segundo orden (ultimos 2 numeros)"),
+        ]
+        for texto, cmd, tip in rank_btns2:
+            btn = ttk.Button(row_r2, text=texto, style='Markov.TButton', command=cmd)
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
+
+    def _dialogo_top25(self):
         datos = self._get_datos()
         if datos is None or datos.empty:
             messagebox.showwarning("Sin datos", "No hay datos cargados")
@@ -309,9 +508,8 @@ class LottoPredictorUI:
         analizador = self._get_analizador()
         if not analizador:
             return
-        panel = self._paneles.get("pred_top28")
-        if panel:
-            self._ejecutar_en_hilo(lambda: analizador.top_25_general(datos.copy()), panel)
+        ventana, txt = self._crear_ventana_salida("Top-25 General", ancho=550, alto=500)
+        self._ejecutar_en_ventana(txt, lambda: analizador.top_25_general(datos.copy()))
 
     def _evaluar_precision(self):
         datos = self._get_datos()
@@ -361,7 +559,7 @@ class LottoPredictorUI:
             texto += "\nUnion = acierta si aparece en Global O xHora\n"
             texto += "Azar  = probabilidad al azar (k/38)\n"
             ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
-        threading.Thread(target=tarea, daemon=True).start()
+        threading.Thread(target=_safe_thread(tarea, ventana, txt), daemon=True).start()
 
     def _evaluar_por_animal(self):
         datos = self._get_datos()
@@ -415,7 +613,7 @@ class LottoPredictorUI:
             texto += f"\nPeores 5: {', '.join(str(a)+'('+a2an.get(a, '?')+')' for a,_,_ in ranking[:5])}"
             texto += f"\nMejores 5: {', '.join(str(a)+'('+a2an.get(a, '?')+')' for a,_,_ in ranking[-5:])}"
             ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
-        threading.Thread(target=tarea, daemon=True).start()
+        threading.Thread(target=_safe_thread(tarea, ventana, txt), daemon=True).start()
 
     def _dialogo_backtesting(self):
         datos = self._get_datos()
@@ -506,7 +704,7 @@ class LottoPredictorUI:
                     a_animal = analizador.num_int_a_animal.get(a, '?')
                     texto += f"  {i:2d}. {a:>2}({a_animal:<10}) ({p:.1f}%)\n"
                 ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
-            threading.Thread(target=tarea, daemon=True).start()
+            threading.Thread(target=_safe_thread(tarea, ventana, txt), daemon=True).start()
         entry_numero.bind("<Return>", lambda e: analizar())
         ttk.Button(frame_top, text="Analizar", command=analizar).pack(side=tk.LEFT, padx=5)
 
@@ -551,13 +749,30 @@ class LottoPredictorUI:
                 parejas = analizador.get_parejas_horarias()
                 if trasnocho_var.get():
                     parejas = list(parejas) + [('19:00:00','08:00:00')]
-                # Find starting index in parejas
                 idx = 0
                 for i, (o, d) in enumerate(parejas):
                     if o == h_actual:
                         idx = i
                         break
-                d = datos.copy()
+                d = analizador.preparar_datos_markov(datos.copy())
+                # Precompute freq per hora and cooc matrix once
+                freq_cache = {}
+                for o, _ in parejas:
+                    h12 = pd.to_datetime(o, format='%H:%M:%S').strftime('%I:%M %p')
+                    sub = d[d['Solo_hora'] == h12] if 'Solo_hora' in d.columns else d
+                    freq_cache[o] = sub['Num_Int'].value_counts(normalize=True).mul(100).to_dict()
+                from collections import defaultdict
+                cooc_mat = defaultdict(lambda: defaultdict(int))
+                cooc_tot = defaultdict(int)
+                for _, grupo in d.groupby('Fecha'):
+                    nums = set(grupo['Num_Int'].unique())
+                    for n in nums:
+                        cooc_tot[n] += 1
+                        for n2 in nums:
+                            if n2 != n:
+                                cooc_mat[n][n2] += 1
+                # Markov matrices (will cache)
+                trans_g, total_g, trans_h, total_h = analizador.construir_matrices_markov(d, incluir_trasnocho=trasnocho_var.get())
                 texto = f"Cadena del dia desde {animal} ({hora_str})\n"
                 texto += "=" * 60 + "\n\n"
                 texto += f"{'Hora':>8}  {'Actual':<14}  {'Top-5 siguientes':<55}\n"
@@ -570,13 +785,34 @@ class LottoPredictorUI:
                 for i in range(idx, len(parejas)):
                     o, dest = parejas[i]
                     h_12 = pd.to_datetime(o, format='%H:%M:%S').strftime('%I:%M %p')
-                    preds = analizador.get_prediccion_combinada(d, num_act, o, dest, top_k=5, incluir_trasnocho=trasnocho_var.get())
+                    # Global Markov
+                    g_scores = {}
+                    if num_act in total_g and total_g[num_act]:
+                        g_scores = {a2: cnt / total_g[num_act] * 100 for a2, cnt in trans_g[num_act].items()}
+                    # Markov x hora
+                    h_scores = {}
+                    th = total_h.get((o, dest), {})
+                    if num_act in th and th[num_act]:
+                        h_scores = {a2: cnt / th[num_act] * 100 for a2, cnt in trans_h[(o, dest)][num_act].items()}
+                    # Frecuencia
+                    f_scores = freq_cache.get(o, {})
+                    # Co-ocurrencia
+                    c_scores = {n2: c / cooc_tot[num_act] * 100 for n2, c in cooc_mat[num_act].items()} if cooc_tot.get(num_act, 0) else {}
+                    # Weighted combination
+                    todos = set(g_scores) | set(h_scores) | set(f_scores) | set(c_scores)
+                    mh_muestras = th.get(num_act, 0)
+                    w_h = min(0.35, max(0.05, mh_muestras / 100 * 0.35))
+                    w_g = 0.40 - w_h * 0.5; w_f = 0.20; w_c = 0.40 - w_h * 0.5
+                    comb = {n2: g_scores.get(n2, 0) * w_g + h_scores.get(n2, 0) * w_h +
+                            f_scores.get(n2, 0) * w_f + c_scores.get(n2, 0) * w_c
+                            for n2 in todos if n2 != num_act}
+                    preds = [(n, s, 0) for n, s in sorted(comb.items(), key=lambda x: -x[1])[:5]]
                     animal_label = analizador.num_int_a_animal.get(num_act, f"?({num_act})")
-                    top5 = [f"{a}({p:.0f}%)" for a, p, _ in preds[:5]] if preds else ["(sin datos)"]
+                    top5 = [f"{a:>2}({analizador.num_int_a_animal.get(a, '?'):<10}){p:.0f}%" for a, p, _ in preds] if preds else ["(sin datos)"]
                     texto += f"  {h_12:<8}  {num_act:2d}({animal_label:<10})  {' / '.join(top5):<55}\n"
                     num_act = preds[0][0] if preds else num_act
                 ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
-            threading.Thread(target=tarea, daemon=True).start()
+            threading.Thread(target=_safe_thread(tarea, ventana, txt), daemon=True).start()
         entry_animal.bind("<Return>", lambda e: simular())
         ttk.Button(frame_top, text="Simular", command=simular).pack(side=tk.LEFT, padx=5)
 
@@ -617,7 +853,7 @@ class LottoPredictorUI:
             txt.delete("1.0", tk.END)
             txt.insert(tk.END, f"Buscando siguientes de ({a1}, {a2})...\n")
             def tarea():
-                items = analizador.get_matriz_segundo_orden(datos.copy(), a1, a2, top_k=25)
+                items = analizador.get_matriz_segundo_orden(datos.copy(), n1, n2, top_k=25)
                 total_m = sum(c for _, _, c in items)
                 texto = f"Animales previos: {a1} -> {a2}  |  total pares: {total_m}\n\n"
                 texto += f"{'#':>3} {'Num(Animal)':<18} {'%':>5} {'Muestras':>8}\n"
@@ -625,14 +861,14 @@ class LottoPredictorUI:
                 if not items:
                     texto += "(sin datos para este par)\n"
                 for i, (a3, p, c) in enumerate(items, 1):
-                    texto += f"  {i:2d} {a3:>2} ({self.analizador.num_int_a_animal.get(a3, '?'):<14}) {p:>4.1f}% {c:>8}\n"
+                    texto += f"  {i:2d} {a3:>2} ({analizador.num_int_a_animal.get(a3, '?'):<14}) {p:>4.1f}% {c:>8}\n"
                 ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
-            threading.Thread(target=tarea, daemon=True).start()
+            threading.Thread(target=_safe_thread(tarea, ventana, txt), daemon=True).start()
         entry1.bind("<Return>", lambda e: entry2.focus_set())
         entry2.bind("<Return>", lambda e: buscar())
         ttk.Button(frame_top, text="Buscar", command=buscar).pack(side=tk.LEFT, padx=5)
 
-    def _dialogo_patrones(self):
+    def _patron_coocurrencias(self):
         datos = self._get_datos()
         if datos is None or datos.empty:
             messagebox.showwarning("Sin datos", "No hay datos cargados")
@@ -640,42 +876,52 @@ class LottoPredictorUI:
         analizador = self._get_analizador()
         if not analizador:
             return
-        ventana = tk.Toplevel(self.root)
-        ventana.title(f"Patrones - {self.current_lottery}")
-        ventana.geometry("750x650")
-        frame_top = ttk.Frame(ventana)
-        frame_top.pack(fill=tk.X, padx=5, pady=5)
+        ventana, txt = self._crear_ventana_salida("Co-ocurrencias", ancho=650, alto=500)
+        self._ejecutar_en_ventana(txt, lambda: analizador.analizar_coocurrencias(datos.copy()))
 
-        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
-        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+    def _patron_rango(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana, txt = self._crear_ventana_salida("Rango Horario", ancho=650, alto=500)
+        self._ejecutar_en_ventana(txt, lambda: analizador.analizar_coocurrencias_por_rango(datos.copy()))
 
-        def ejecutar(accion):
-            d = datos.copy()
-            txt.delete("1.0", tk.END)
-            txt.insert(tk.END, f"Analizando patrones...\n")
-            def tarea():
-                redir = RedirectText(txt)
-                with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
-                    if accion == "coocurrencias":
-                        analizador.analizar_coocurrencias(d)
-                    elif accion == "rango":
-                        analizador.analizar_coocurrencias_por_rango(d)
-                    elif accion == "dia_semana":
-                        analizador.analizar_frecuencia_por_dia_semana(d)
-                    elif accion == "rachas":
-                        analizador.analizar_secuencias_aciertos_fallos(d)
-                    elif accion == "comparar":
-                        analizador.comparar_estrategias(d)
-                    ventana.after(0, lambda: txt.see(tk.END))
-            threading.Thread(target=tarea, daemon=True).start()
+    def _patron_dia_semana(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana, txt = self._crear_ventana_salida("Dia Semana", ancho=650, alto=500)
+        self._ejecutar_en_ventana(txt, lambda: analizador.analizar_frecuencia_por_dia_semana(datos.copy()))
 
-        ttk.Button(frame_top, text="Co-ocurrencias", command=lambda: ejecutar("coocurrencias")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_top, text="Rango Horario", command=lambda: ejecutar("rango")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_top, text="Dia Semana", command=lambda: ejecutar("dia_semana")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_top, text="Rachas", command=lambda: ejecutar("rachas")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_top, text="Comparar", command=lambda: ejecutar("comparar")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_top, text="Cadena Dia", command=self._dialogo_cadena).pack(side=tk.LEFT, padx=2)
-        ttk.Button(frame_top, text="2do Orden", command=self._dialogo_segundo_orden).pack(side=tk.LEFT, padx=2)
+    def _patron_rachas(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana, txt = self._crear_ventana_salida("Rachas", ancho=650, alto=500)
+        self._ejecutar_en_ventana(txt, lambda: analizador.analizar_secuencias_aciertos_fallos(datos.copy()))
+
+    def _patron_comparar(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana, txt = self._crear_ventana_salida("Comparar Estrategias", ancho=700, alto=600)
+        self._ejecutar_en_ventana(txt, lambda: analizador.comparar_estrategias(datos.copy()))
 
     def _dialogo_markov(self):
         datos = self._get_datos()
@@ -723,9 +969,9 @@ class LottoPredictorUI:
                 if not items:
                     texto += "(sin datos para este animal)\n"
                 for i, (a2, p, c) in enumerate(items, 1):
-                    texto += f"  {i:2d} {a2:>2} ({self.analizador.num_int_a_animal.get(a2, '?'):<14}) {p:>4.1f}% {c:>8}\n"
+                    texto += f"  {i:2d} {a2:>2} ({analizador.num_int_a_animal.get(a2, '?'):<14}) {p:>4.1f}% {c:>8}\n"
                 ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
-            threading.Thread(target=tarea, daemon=True).start()
+            threading.Thread(target=_safe_thread(tarea, ventana, txt), daemon=True).start()
         entry.bind("<Return>", lambda e: buscar())
         ttk.Button(frame_top, text="Buscar", command=buscar).pack(side=tk.LEFT, padx=5)
 
@@ -772,7 +1018,7 @@ class LottoPredictorUI:
                     pct = cnt / total * 100
                     texto += f"  {num:>2} ({animal:<14}) {cnt:4d} ({pct:.1f}%)\n"
                 ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
-            threading.Thread(target=tarea, daemon=True).start()
+            threading.Thread(target=_safe_thread(tarea, ventana, txt), daemon=True).start()
         combo.bind("<<ComboboxSelected>>", lambda e: buscar())
         ttk.Button(frame_top, text="Buscar", command=buscar).pack(side=tk.LEFT, padx=5)
 
@@ -833,16 +1079,172 @@ class LottoPredictorUI:
                     texto += " (con trasnocho)"
                 total_m = sum(c for _, _, c in items)
                 texto += f"\n" + "=" * 50 + f"\nTotal muestras: {total_m}\n\nTop siguientes:\n"
-                texto += f"{'#':>3} {'Animal':<14} {'%':>5} {'Muestras':>8}\n"
-                texto += "-" * 35 + "\n"
+                texto += f"{'#':>3} {'Num(Animal)':<18} {'%':>5} {'Muestras':>8}\n"
+                texto += "-" * 40 + "\n"
                 if not items:
                     texto += "(sin datos para este animal a esta hora)\n"
                 for i, (a2, p, c) in enumerate(items, 1):
-                    texto += f"  {i:2d} {a2:<14} {p:>4.1f}% {c:>8}\n"
+                    texto += f"  {i:2d} {a2:>2} ({analizador.num_int_a_animal.get(a2, '?'):<14}) {p:>4.1f}% {c:>8}\n"
                 ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
-            threading.Thread(target=tarea, daemon=True).start()
+            threading.Thread(target=_safe_thread(tarea, ventana, txt), daemon=True).start()
         entry_animal.bind("<Return>", lambda e: buscar())
         combo.bind("<<ComboboxSelected>>", lambda e: buscar())
+        ttk.Button(frame_top, text="Buscar", command=buscar).pack(side=tk.LEFT, padx=5)
+
+    def _dialogo_markov_dia_semana(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana = tk.Toplevel(self.root)
+        ventana.title("Markov x Dia de Semana")
+        ventana.geometry("650x540")
+        frame_top = ttk.Frame(ventana)
+        frame_top.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(frame_top, text="Animal:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry_animal = ttk.Entry(frame_top, width=15, font=("", 10))
+        entry_animal.pack(side=tk.LEFT, padx=2)
+        entry_animal.focus_set()
+        ttk.Label(frame_top, text="Hora:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        horas = ["", "08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM",
+                 "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM",
+                 "04:00 PM", "05:00 PM", "06:00 PM", "07:00 PM"]
+        combo = ttk.Combobox(frame_top, values=horas, state="normal", width=12, font=("", 10))
+        combo.pack(side=tk.LEFT, padx=2)
+        combo.set("")
+        trasnocho_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(frame_top, text="7PM→8AM", variable=trasnocho_var).pack(side=tk.LEFT, padx=5)
+        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        ttk.Label(frame_top, text="(dejar vacio = ultimo sorteo)", font=("", 8)).pack(side=tk.LEFT, padx=5)
+        def buscar():
+            animal = entry_animal.get().strip().upper()
+            hora_str = combo.get().strip()
+            txt.delete("1.0", tk.END)
+            txt.insert(tk.END, "Calculando...\n")
+            def tarea():
+                import io, contextlib
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    analizador.prediccion_markov_dia_semana(
+                        datos.copy(), top_k=25,
+                        animal=animal if animal else None,
+                        hora=hora_str if hora_str else None,
+                        incluir_trasnocho=trasnocho_var.get()
+                    )
+                ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, buf.getvalue())))
+            threading.Thread(target=_safe_thread(tarea, ventana, txt), daemon=True).start()
+        entry_animal.bind("<Return>", lambda e: buscar())
+        combo.bind("<<ComboboxSelected>>", lambda e: buscar())
+        ttk.Button(frame_top, text="Buscar", command=buscar).pack(side=tk.LEFT, padx=5)
+
+    def _dialogo_coocurrencia(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Co-ocurrencia - {self.current_lottery}")
+        ventana.geometry("550x520")
+        frame_top = ttk.Frame(ventana)
+        frame_top.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(frame_top, text="Numero (0-37):", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry = ttk.Entry(frame_top, width=8, font=("", 10))
+        entry.pack(side=tk.LEFT, padx=2)
+        entry.focus_set()
+        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        def buscar():
+            n_str = entry.get().strip()
+            if not n_str.isdigit() or not (0 <= int(n_str) <= 37):
+                messagebox.showwarning("Error", "Ingresa un numero valido (0-37)")
+                return
+            n = int(n_str)
+            animal = analizador.num_int_a_animal.get(n, None)
+            if animal is None:
+                messagebox.showwarning("Error", f"Numero {n} no valido")
+                return
+            txt.delete("1.0", tk.END)
+            txt.insert(tk.END, f"Buscando co-ocurrencias de {animal}...\n")
+            def tarea():
+                matriz = analizador.get_matriz_coocurrencia_por_animal(datos.copy(), top_k=25)
+                items = matriz.get(animal, [])
+                total_m = sum(c for _, _, c in items)
+                texto = f"Animal actual: {animal}  |  total muestras (dias que aparece): {total_m}"
+                texto += f"\n\nNumeros que mas suelen salir el MISMO DIA que {animal}:\n"
+                texto += f"{'#':>3} {'Num(Animal)':<18} {'%':>5} {'Muestras':>8}\n"
+                texto += "-" * 42 + "\n"
+                if not items:
+                    texto += "(sin datos para este numero)\n"
+                for i, (a2, p, c) in enumerate(items, 1):
+                    ni = analizador.animal_a_num_int.get(a2, '?')
+                    texto += f"  {i:2d} {str(ni):>2} ({a2:<14}) {p:>4.1f}% {c:>8}\n"
+                ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
+            threading.Thread(target=_safe_thread(tarea, ventana, txt), daemon=True).start()
+        entry.bind("<Return>", lambda e: buscar())
+        ttk.Button(frame_top, text="Buscar", command=buscar).pack(side=tk.LEFT, padx=5)
+
+    def _dialogo_full(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        parejas = analizador.get_parejas_horarias()
+        opciones = [f"{o} -> {d}" for o, d in parejas] + ['19:00:00 -> 08:00:00']
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Full (4 fuentes) - {self.current_lottery}")
+        ventana.geometry("600x550")
+        frame_top = ttk.Frame(ventana)
+        frame_top.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(frame_top, text="Numero (0-37):", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry = ttk.Entry(frame_top, width=8, font=("", 10))
+        entry.pack(side=tk.LEFT, padx=2)
+        entry.focus_set()
+        ttk.Label(frame_top, text="Hora:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        combo = ttk.Combobox(frame_top, values=opciones, state="readonly", width=22)
+        combo.pack(side=tk.LEFT, padx=2)
+        combo.set(opciones[-1])
+        txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
+        txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        txt.insert(tk.END, "Selecciona numero y hora, luego clic en Buscar\n")
+        def buscar():
+            n_str = entry.get().strip()
+            seleccion = combo.get()
+            if not n_str.isdigit() or not (0 <= int(n_str) <= 37) or not seleccion:
+                messagebox.showwarning("Error", "Ingresa un numero valido (0-37) y selecciona hora")
+                return
+            n = int(n_str)
+            animal = analizador.num_int_a_animal.get(n, None)
+            if animal is None:
+                messagebox.showwarning("Error", f"Numero {n} no valido")
+                return
+            partes = seleccion.split(" -> ")
+            h_o, h_d = partes[0].strip(), partes[1].strip()
+            txt.delete("1.0", tk.END)
+            txt.insert(tk.END, f"Calculando Full (4 fuentes) para {animal} en {h_o} -> {h_d}...\n")
+            def tarea():
+                items = analizador.get_prediccion_combinada(datos.copy(), n, h_o, h_d, top_k=25, incluir_trasnocho=False)
+                texto = f"PREDICCION FULL (4 fuentes): {animal} | {h_o} -> {h_d}\n"
+                texto += f"Combina: Markov Global + Markov x Hora + Frec. x Hora + Co-ocurrencia\n"
+                texto += f"\n{'#':>3} {'Num(Animal)':<18} {'Score':>7} {'Fuentes':>8}\n"
+                texto += "-" * 42 + "\n"
+                if not items:
+                    texto += "(sin datos)\n"
+                for i, (n2, score, fuentes) in enumerate(items, 1):
+                    a2 = analizador.num_int_a_animal.get(n2, "?")
+                    texto += f"  {i:2d} {n2:>2} ({a2:<14}) {score:>6.2f} {fuentes:>8}\n"
+                ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
+            threading.Thread(target=_safe_thread(tarea, ventana, txt), daemon=True).start()
+        entry.bind("<Return>", lambda e: buscar())
         ttk.Button(frame_top, text="Buscar", command=buscar).pack(side=tk.LEFT, padx=5)
 
     def _ventana_matriz_combinada(self):
@@ -917,9 +1319,9 @@ class LottoPredictorUI:
                     for i, (a2, p) in enumerate(top, 1):
                         pg, cg = items_g.get(a2, (0, 0))
                         ph, ch = items_h.get(a2, (0, 0))
-                        texto += f"  {i:2d} {a2:>2} ({self.analizador.num_int_a_animal.get(a2, '?'):<14}) {pg:>4.1f}% {cg:>3} {ph:>4.1f}% {ch:>3} {p:>4.1f}%\n"
+                        texto += f"  {i:2d} {a2:>2} ({analizador.num_int_a_animal.get(a2, '?'):<14}) {pg:>4.1f}% {cg:>3} {ph:>4.1f}% {ch:>3} {p:>4.1f}%\n"
                 ventana.after(0, lambda: (txt.delete("1.0", tk.END), txt.insert(tk.END, texto)))
-            threading.Thread(target=tarea, daemon=True).start()
+            threading.Thread(target=_safe_thread(tarea, ventana, txt), daemon=True).start()
         entry_animal.bind("<Return>", lambda e: buscar())
         btn_buscar = ttk.Button(frame_bot, text="Buscar", command=buscar)
         btn_buscar.pack()
@@ -956,18 +1358,15 @@ class LottoPredictorUI:
                 messagebox.showwarning("Error", "Debes seleccionar una hora")
                 return
             ventana.destroy()
+            salida, txt = self._crear_ventana_salida("Predicción Markov+Hora", ancho=550, alto=400)
             hilo = threading.Thread(
-                target=self._predecir_siguiente_mh_task, args=(n, hora), daemon=True
+                target=self._predecir_siguiente_mh_task, args=(n, hora, txt), daemon=True
             )
             hilo.start()
         ttk.Button(ventana, text="Predecir", command=ejecutar).pack(pady=15)
 
-    def _predecir_siguiente_mh_task(self, n, hora_str):
-        panel = self._paneles.get("pred_sig_mh")
-        if panel is None:
-            return
-        redir = RedirectText(panel)
-        self.root.after(0, lambda: panel.delete("1.0", tk.END))
+    def _predecir_siguiente_mh_task(self, n, hora_str, txt):
+        redir = RedirectText(txt)
         with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
             datos = self._get_datos()
             if datos is None or datos.empty:
@@ -1081,9 +1480,10 @@ class LottoPredictorUI:
                     messagebox.showwarning("Error", "Hora invalida")
                     return
             ventana.destroy()
+            salida, txt = self._crear_ventana_salida("Predicción ML", ancho=650, alto=500)
             hilo = threading.Thread(
                 target=self._predecir_siguiente_ml_task,
-                args=(animal, hora_24h, solo_hora), daemon=True
+                args=(txt, animal, hora_24h, solo_hora), daemon=True
             )
             hilo.start()
 
@@ -1092,12 +1492,8 @@ class LottoPredictorUI:
         ttk.Button(frame_btn, text="Predecir", command=ejecutar).pack(side=tk.LEFT, padx=5)
         ttk.Button(frame_btn, text="Cancelar", command=ventana.destroy).pack(side=tk.LEFT, padx=5)
 
-    def _predecir_siguiente_ml_task(self, animal=None, hora_24h=None, solo_hora=None):
-        panel = self._paneles.get("ml_predecir")
-        if panel is None:
-            return
-        redir = RedirectText(panel)
-        self.root.after(0, lambda: panel.delete("1.0", tk.END))
+    def _predecir_siguiente_ml_task(self, txt, animal=None, hora_24h=None, solo_hora=None):
+        redir = RedirectText(txt)
         with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
             datos = self._get_datos()
             if datos is None or datos.empty:
@@ -1123,33 +1519,172 @@ class LottoPredictorUI:
             d2 = analizador.agregar_caracteristicas_avanzadas(d)
             analizador.prediccion_completa_hoy(d2, rf, le_rf, xgb, le_xgb)
 
+    def _predecir_rf_dialogo(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        rf, le_rf = self.modelos_rf.get(self.current_lottery), self.le_y_rf.get(self.current_lottery)
+        if rf is None:
+            messagebox.showwarning("Sin modelo", "No hay modelo Random Forest. Entrena RF primero.")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Pred. RF - {self.current_lottery}")
+        ventana.geometry("380x200")
+        ventana.transient(self.root)
+        ventana.grab_set()
+        ttk.Label(ventana, text="Animal que acaba de salir:", font=("", 10)).pack(anchor=tk.W, padx=15, pady=(12, 2))
+        entry_animal = ttk.Entry(ventana, width=25, font=("", 10))
+        entry_animal.pack(anchor=tk.W, padx=15, pady=2)
+        entry_animal.focus_set()
+        ttk.Label(ventana, text="Hora del sorteo:", font=("", 10)).pack(anchor=tk.W, padx=15, pady=(8, 2))
+        horas = ["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM",
+                 "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM",
+                 "04:00 PM", "05:00 PM", "06:00 PM", "07:00 PM"]
+        combo_hora = ttk.Combobox(ventana, values=horas, state="readonly", width=15, font=("", 10))
+        combo_hora.pack(anchor=tk.W, padx=15, pady=2)
+        combo_hora.set(horas[-1])
+        def ejecutar():
+            animal = entry_animal.get().strip().upper()
+            if not animal or animal not in analizador.animales_carac:
+                messagebox.showwarning("Error", f"Animal invalido")
+                return
+            hora_str = combo_hora.get()
+            dt_h = pd.to_datetime(hora_str, format='%I:%M %p')
+            h24 = dt_h.strftime('%H:%M:%S')
+            sh = dt_h.strftime('%I:%M %p')
+            ventana.destroy()
+            salida, txt = self._crear_ventana_salida("Prediccion RF", ancho=650, alto=500)
+            threading.Thread(target=self._predecir_rf_task, args=(txt, animal, h24, sh), daemon=True).start()
+        frame_b = ttk.Frame(ventana)
+        frame_b.pack(pady=15)
+        ttk.Button(frame_b, text="Predecir", command=ejecutar).pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame_b, text="Cancelar", command=ventana.destroy).pack(side=tk.LEFT, padx=5)
+
+    def _predecir_rf_task(self, txt, animal, hora_24h, solo_hora):
+        redir = RedirectText(txt)
+        with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
+            datos = self._get_datos()
+            if datos is None or datos.empty:
+                print("ERROR: Sin datos"); return
+            analizador = self._get_analizador()
+            if not analizador: return
+            rf, le_rf = self.modelos_rf.get(self.current_lottery), self.le_y_rf.get(self.current_lottery)
+            if not rf: print("ERROR: Modelo RF no disponible"); return
+            num = analizador.animal_a_num_int.get(animal)
+            if num is None:
+                print(f"ERROR: Animal '{animal}' no valido"); return
+            d = datos.copy()
+            d.iloc[-1, d.columns.get_loc('Animal')] = animal
+            d.iloc[-1, d.columns.get_loc('Num_Int')] = num
+            d.iloc[-1, d.columns.get_loc('Numero')] = num
+            d.iloc[-1, d.columns.get_loc('Hora')] = hora_24h
+            d.iloc[-1, d.columns.get_loc('Solo_hora')] = solo_hora
+            print(f"Prediccion RF desde {animal} a las {solo_hora}")
+            analizador.imprimir_prediccion_modelo(d, animal, hora_24h, rf, le_rf, "RF")
+
+    def _predecir_xgb_dialogo(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        xgb, le_xgb = self.modelos_xgb.get(self.current_lottery), self.le_y_xgb.get(self.current_lottery)
+        if xgb is None:
+            messagebox.showwarning("Sin modelo", "No hay modelo XGBoost. Entrena XGB primero.")
+            return
+        analizador = self._get_analizador()
+        if not analizador:
+            return
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Pred. XGB - {self.current_lottery}")
+        ventana.geometry("380x200")
+        ventana.transient(self.root)
+        ventana.grab_set()
+        ttk.Label(ventana, text="Animal que acaba de salir:", font=("", 10)).pack(anchor=tk.W, padx=15, pady=(12, 2))
+        entry_animal = ttk.Entry(ventana, width=25, font=("", 10))
+        entry_animal.pack(anchor=tk.W, padx=15, pady=2)
+        entry_animal.focus_set()
+        ttk.Label(ventana, text="Hora del sorteo:", font=("", 10)).pack(anchor=tk.W, padx=15, pady=(8, 2))
+        horas = ["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM",
+                 "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM",
+                 "04:00 PM", "05:00 PM", "06:00 PM", "07:00 PM"]
+        combo_hora = ttk.Combobox(ventana, values=horas, state="readonly", width=15, font=("", 10))
+        combo_hora.pack(anchor=tk.W, padx=15, pady=2)
+        combo_hora.set(horas[-1])
+        def ejecutar():
+            animal = entry_animal.get().strip().upper()
+            if not animal or animal not in analizador.animales_carac:
+                messagebox.showwarning("Error", f"Animal invalido")
+                return
+            hora_str = combo_hora.get()
+            dt_h = pd.to_datetime(hora_str, format='%I:%M %p')
+            h24 = dt_h.strftime('%H:%M:%S')
+            sh = dt_h.strftime('%I:%M %p')
+            ventana.destroy()
+            salida, txt = self._crear_ventana_salida("Prediccion XGB", ancho=650, alto=500)
+            threading.Thread(target=self._predecir_xgb_task, args=(txt, animal, h24, sh), daemon=True).start()
+        frame_b = ttk.Frame(ventana)
+        frame_b.pack(pady=15)
+        ttk.Button(frame_b, text="Predecir", command=ejecutar).pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame_b, text="Cancelar", command=ventana.destroy).pack(side=tk.LEFT, padx=5)
+
+    def _predecir_xgb_task(self, txt, animal, hora_24h, solo_hora):
+        redir = RedirectText(txt)
+        with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
+            datos = self._get_datos()
+            if datos is None or datos.empty:
+                print("ERROR: Sin datos"); return
+            analizador = self._get_analizador()
+            if not analizador: return
+            xgb, le_xgb = self.modelos_xgb.get(self.current_lottery), self.le_y_xgb.get(self.current_lottery)
+            if not xgb: print("ERROR: Modelo XGB no disponible"); return
+            num = analizador.animal_a_num_int.get(animal)
+            if num is None:
+                print(f"ERROR: Animal '{animal}' no valido"); return
+            d = datos.copy()
+            d.iloc[-1, d.columns.get_loc('Animal')] = animal
+            d.iloc[-1, d.columns.get_loc('Num_Int')] = num
+            d.iloc[-1, d.columns.get_loc('Numero')] = num
+            d.iloc[-1, d.columns.get_loc('Hora')] = hora_24h
+            d.iloc[-1, d.columns.get_loc('Solo_hora')] = solo_hora
+            print(f"Prediccion XGB desde {animal} a las {solo_hora}")
+            analizador.imprimir_prediccion_modelo(d, animal, hora_24h, xgb, le_xgb, "XGB")
+
     # ================ TAB: MODELOS ML ================
 
     def _tab_crear_modelos(self):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Modelos ML")
 
-        frame_btn = ttk.Frame(tab)
-        frame_btn.pack(fill=tk.X, padx=5, pady=5)
+        grupo_ml = ttk.LabelFrame(tab, text="🤖 Machine Learning", padding=10)
+        grupo_ml.pack(fill=tk.X, padx=10, pady=10)
 
-        btns = [
-            ("Entrenar Random Forest", "ml_rf"),
-            ("Entrenar XGBoost", "ml_xgb"),
-            ("Evaluar con IA", "ml_eval_ia"),
-            ("Auto-Evaluacion", "ml_auto_eval"),
-            ("Predecir Siguiente", "ml_predecir"),
-            ("Patrones", "ml_patrones"),
+        row1 = ttk.Frame(grupo_ml)
+        row1.pack(fill=tk.X, pady=2)
+        row2 = ttk.Frame(grupo_ml)
+        row2.pack(fill=tk.X, pady=2)
+
+        ml_btns1 = [
+            ("Entrenar RF", self._ml_entrenar_rf_dialogo, "Entrena Random Forest con optimizacion de hiperparametros"),
+            ("Entrenar XGB", self._ml_entrenar_xgb_dialogo, "Entrena XGBoost con optimizacion de hiperparametros"),
+            ("Auto-Evaluacion", self._ml_auto_eval_dialogo, "Backtesting historico de todos los modelos (ultimos 500)"),
         ]
-        for texto, accion in btns:
-            btn = ttk.Button(frame_btn, text=texto, command=lambda a=accion: self._modelos_accion(a))
-            btn.pack(side=tk.LEFT, padx=2)
+        for texto, cmd, tip in ml_btns1:
+            btn = ttk.Button(row1, text=texto, style='ML.TButton', command=cmd)
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
 
-        grid = self._crear_paned_grid(tab)
-
-        self._agregar_panel_salida(grid, "Entrenar RF / XGB / Patrones", "ml_entrenamiento", 0, 0)
-        self._agregar_panel_salida(grid, "Evaluar con IA", "ml_eval_ia", 0, 1)
-        self._agregar_panel_salida(grid, "Auto-Evaluacion", "ml_auto_eval", 1, 0)
-        self._agregar_panel_salida(grid, "Predecir Siguiente", "ml_predecir", 1, 1)
+        ml_btns2 = [
+            ("Pred. RF", self._predecir_rf_dialogo, "Predice el siguiente numero usando Random Forest"),
+            ("Pred. XGB", self._predecir_xgb_dialogo, "Predice el siguiente numero usando XGBoost"),
+        ]
+        for texto, cmd, tip in ml_btns2:
+            btn = ttk.Button(row2, text=texto, style='ML.TButton', command=cmd)
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
 
     def _get_modelos(self):
         rf = self.modelos_rf.get(self.current_lottery)
@@ -1158,71 +1693,49 @@ class LottoPredictorUI:
         le_xgb = self.le_y_xgb.get(self.current_lottery)
         return rf, le_rf, xgb, le_xgb
 
-    def _modelos_accion(self, accion):
+    def _ml_entrenar_rf_dialogo(self):
         datos = self._get_datos()
         if datos is None or datos.empty:
             messagebox.showwarning("Sin datos", "No hay datos cargados")
             return
-        d = datos.copy()
         analizador = self._get_analizador()
         mod = self._get_mod()
         if not analizador or not mod:
             return
+        d = datos.copy()
+        ventana, txt = self._crear_ventana_salida("Entrenar Random Forest", ancho=700, alto=550)
+        self._ejecutar_en_ventana(txt, lambda: self._entrenar_rf(analizador, mod, d))
 
-        panel_key = accion if accion != "ml_patrones" else "ml_entrenamiento"
-        if accion in ("ml_rf", "ml_xgb"):
-            panel_key = "ml_entrenamiento"
-        panel = self._paneles.get(panel_key)
-        if panel is None:
+    def _ml_entrenar_xgb_dialogo(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
             return
+        analizador = self._get_analizador()
+        mod = self._get_mod()
+        if not analizador or not mod:
+            return
+        d = datos.copy()
+        ventana, txt = self._crear_ventana_salida("Entrenar XGBoost", ancho=700, alto=550)
+        self._ejecutar_en_ventana(txt, lambda: self._entrenar_xgb(analizador, mod, d))
 
-        def ejecutar_en_panel(func):
-            def tarea():
-                self.root.after(0, lambda: panel.delete("1.0", tk.END))
-                redir = RedirectText(panel)
-                with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
-                    func()
-            hilo = threading.Thread(target=tarea, daemon=True)
-            hilo.start()
+    def _ml_auto_eval_dialogo(self):
+        datos = self._get_datos()
+        if datos is None or datos.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados")
+            return
+        analizador = self._get_analizador()
+        mod = self._get_mod()
+        if not analizador or not mod:
+            return
+        d = datos.copy()
+        rf, le_rf, xgb, le_xgb = self._get_modelos()
+        ventana, txt = self._crear_ventana_salida("Auto-Evaluacion", ancho=750, alto=650)
+        self._ejecutar_en_ventana(txt, lambda: self._ml_ejecutar_auto_eval(d, analizador, rf, le_rf, xgb, le_xgb))
 
-        if accion in ("ml_rf", "ml_xgb", "ml_patrones"):
-            if accion == "ml_rf":
-                ejecutar_en_panel(lambda: self._entrenar_rf(analizador, mod, d))
-            elif accion == "ml_xgb":
-                ejecutar_en_panel(lambda: self._entrenar_xgb(analizador, mod, d))
-            elif accion == "ml_patrones":
-                ejecutar_en_panel(lambda: analizador.analizar_patrones_sorteo(d))
-
-        elif accion == "ml_eval_ia":
-            rf, le_rf, xgb, le_xgb = self._get_modelos()
-            modelo = xgb or rf
-            le_y = le_xgb or le_rf
-            def tarea():
-                d2 = analizador.agregar_caracteristicas_avanzadas(d.copy())
-                print("=" * 60)
-                print("  EVALUACION COMPLETA CON IA")
-                print("=" * 60)
-                print("\n--- 1. PREDICCION COMBINADA PARA HOY (Ensemble) ---")
-                analizador.prediccion_hoy_ensemble(d2, modelo, le_y, k=25)
-                if rf and le_rf:
-                    print("\n--- 2. MATRIZ RANDOM FOREST (Top-25 por hora) ---")
-                    matriz_rf = analizador.predecir_top_k_por_hora(rf, le_rf, d2.copy(), k=25)
-                    analizador.mostrar_matriz_prediccion(matriz_rf)
-                if xgb and le_xgb:
-                    print("\n--- 3. MATRIZ XGBoost (Top-25 por hora) ---")
-                    matriz_xgb = analizador.predecir_top_k_por_hora(xgb, le_xgb, d2.copy(), k=25)
-                    analizador.mostrar_matriz_prediccion(matriz_xgb)
-            ejecutar_en_panel(tarea)
-
-        elif accion == "ml_auto_eval":
-            rf, le_rf, xgb, le_xgb = self._get_modelos()
-            def tarea():
-                d2 = analizador.agregar_caracteristicas_avanzadas(d.copy())
-                analizador.evaluar_predicciones_historicas(d2, rf, le_rf, xgb, le_xgb)
-            ejecutar_en_panel(tarea)
-
-        elif accion == "ml_predecir":
-            self._predecir_siguiente_ml_dialogo()
+    def _ml_ejecutar_auto_eval(self, d, analizador, rf, le_rf, xgb, le_xgb):
+        d2 = analizador.agregar_caracteristicas_avanzadas(d.copy())
+        analizador.evaluar_predicciones_historicas(d2, rf, le_rf, xgb, le_xgb)
 
     def _entrenar_rf(self, analizador, mod, d):
         analizador.random_forest_optimizado(d)
@@ -1246,43 +1759,40 @@ class LottoPredictorUI:
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Web Scraper")
 
-        frame_btn = ttk.Frame(tab)
-        frame_btn.pack(fill=tk.X, padx=5, pady=5)
+        grupo_scraper = ttk.LabelFrame(tab, text="🌐 Web Scraper", padding=10)
+        grupo_scraper.pack(fill=tk.X, padx=10, pady=10)
 
-        btns = [
-            ("Scrapear Faltantes (Actual)", "scraper_faltantes"),
-            ("Scrapear Todas", "scraper_todas"),
-            ("Scrapear Dia Especifico", "scraper_dia"),
-            ("Scrapear Rango", "scraper_rango"),
+        row1 = ttk.Frame(grupo_scraper)
+        row1.pack(fill=tk.X, pady=2)
+        row2 = ttk.Frame(grupo_scraper)
+        row2.pack(fill=tk.X, pady=2)
+
+        scraper_btns = [
+            ("Faltantes", self._scraper_faltantes_dialogo, "Scrapea fechas faltantes desde la ultima disponible hasta hoy"),
+            ("Todas las Loterias", self._scraper_todas_dialogo, "Scrapea fechas faltantes para TODAS las loterias"),
         ]
-        for texto, accion in btns:
-            btn = ttk.Button(frame_btn, text=texto, command=lambda a=accion: self._scraper_accion(a))
-            btn.pack(side=tk.LEFT, padx=2)
+        for texto, cmd, tip in scraper_btns:
+            btn = ttk.Button(row1, text=texto, style='Scraper.TButton', command=cmd)
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
 
-        grid = self._crear_paned_grid(tab)
+        scraper_btns2 = [
+            ("Dia Especifico", self._scraper_dialogo_dia, "Scrapea una fecha en especifico (YYYY-MM-DD)"),
+            ("Rango de Fechas", self._scraper_dialogo_rango, "Scrapea todas las fechas en un rango"),
+        ]
+        for texto, cmd, tip in scraper_btns2:
+            btn = ttk.Button(row2, text=texto, style='Scraper.TButton', command=cmd)
+            btn.pack(side=tk.LEFT, padx=3)
+            ToolTip(btn, tip)
 
-        self._agregar_panel_salida(grid, "Scrapear Faltantes", "scraper_faltantes", 0, 0)
-        self._agregar_panel_salida(grid, "Scrapear Todas", "scraper_todas", 0, 1)
-        self._agregar_panel_salida(grid, "Scrapear Dia Especifico", "scraper_dia", 1, 0)
-        self._agregar_panel_salida(grid, "Scrapear Rango", "scraper_rango", 1, 1)
-
-    def _scraper_accion(self, accion):
-        if accion == "scraper_faltantes":
-            self._scraper_faltantes()
-        elif accion == "scraper_todas":
-            self._scraper_todas()
-        elif accion == "scraper_dia":
-            self._scraper_dialogo_dia()
-        elif accion == "scraper_rango":
-            self._scraper_dialogo_rango()
-
-    def _scraper_faltantes(self):
-        hilo = threading.Thread(target=self._scraper_faltantes_task, daemon=True)
+    def _scraper_faltantes_dialogo(self):
+        ventana, txt = self._crear_ventana_salida("Scrapear Faltantes", ancho=650, alto=500)
+        hilo = threading.Thread(target=self._scraper_faltantes_task, args=(txt,), daemon=True)
         hilo.start()
 
-    def _scraper_faltantes_task(self):
-        redir = RedirectText(self._paneles["scraper_faltantes"])
-        self.root.after(0, lambda: self._paneles["scraper_faltantes"].delete("1.0", tk.END))
+    def _scraper_faltantes_task(self, txt):
+        redir = RedirectText(txt)
+        txt.after(0, lambda: txt.delete("1.0", tk.END))
         with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
             nombre = self.current_lottery
             mod = LOTTERY_MODULES.get(nombre)
@@ -1348,14 +1858,14 @@ class LottoPredictorUI:
             except Exception as e:
                 print(f"Error: {e}")
 
-    def _scraper_todas(self):
-        hilo = threading.Thread(target=self._scraper_todas_task, daemon=True)
+    def _scraper_todas_dialogo(self):
+        ventana, txt = self._crear_ventana_salida("Scrapear Todas las Loterias", ancho=700, alto=600)
+        hilo = threading.Thread(target=self._scraper_todas_task, args=(txt,), daemon=True)
         hilo.start()
 
-    def _scraper_todas_task(self):
-        text = self._paneles["scraper_todas"]
-        redir = RedirectText(text)
-        self.root.after(0, lambda: text.delete("1.0", tk.END))
+    def _scraper_todas_task(self, txt):
+        redir = RedirectText(txt)
+        txt.after(0, lambda: txt.delete("1.0", tk.END))
         with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
             scrapers = {
                 "Lotto Activo": ("scraper_lotto", "data/LottoActivoINT.xlsx"),
@@ -1411,27 +1921,28 @@ class LottoPredictorUI:
     def _scraper_dialogo_dia(self):
         ventana = tk.Toplevel(self.root)
         ventana.title("Scrapear Dia")
-        ventana.geometry("300x150")
+        ventana.geometry("350x150")
         ventana.transient(self.root)
         ventana.grab_set()
 
-        ttk.Label(ventana, text="Fecha (YYYY-MM-DD):").pack(pady=(10, 0))
-        entry = ttk.Entry(ventana)
+        ttk.Label(ventana, text="Fecha (YYYY-MM-DD):", font=("", 10)).pack(pady=(10, 0))
+        entry = ttk.Entry(ventana, font=("", 10))
         entry.pack(pady=5)
         entry.insert(0, datetime.date.today().strftime("%Y-%m-%d"))
+        entry.focus_set()
 
         def ejecutar():
             fecha = entry.get().strip()
             ventana.destroy()
-            hilo = threading.Thread(target=self._scraper_dia_task, args=(fecha,), daemon=True)
+            salida, txt = self._crear_ventana_salida(f"Scrapear Dia: {fecha}", ancho=600, alto=400)
+            hilo = threading.Thread(target=self._scraper_dia_task, args=(fecha, txt), daemon=True)
             hilo.start()
 
+        entry.bind("<Return>", lambda e: ejecutar())
         ttk.Button(ventana, text="Scrapear", command=ejecutar).pack(pady=10)
 
-    def _scraper_dia_task(self, fecha):
-        text = self._paneles["scraper_dia"]
-        redir = RedirectText(text)
-        self.root.after(0, lambda: text.delete("1.0", tk.END))
+    def _scraper_dia_task(self, fecha, txt):
+        redir = RedirectText(txt)
         with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
             nombre = self.current_lottery
             mod = LOTTERY_MODULES.get(nombre)
@@ -1469,17 +1980,17 @@ class LottoPredictorUI:
     def _scraper_dialogo_rango(self):
         ventana = tk.Toplevel(self.root)
         ventana.title("Scrapear Rango")
-        ventana.geometry("300x180")
+        ventana.geometry("350x200")
         ventana.transient(self.root)
         ventana.grab_set()
 
-        ttk.Label(ventana, text="Desde (YYYY-MM-DD):").pack(pady=(10, 0))
-        entry_desde = ttk.Entry(ventana)
+        ttk.Label(ventana, text="Desde (YYYY-MM-DD):", font=("", 10)).pack(pady=(10, 0))
+        entry_desde = ttk.Entry(ventana, font=("", 10))
         entry_desde.pack(pady=2)
         entry_desde.insert(0, "2024-01-01")
 
-        ttk.Label(ventana, text="Hasta (YYYY-MM-DD):").pack(pady=(5, 0))
-        entry_hasta = ttk.Entry(ventana)
+        ttk.Label(ventana, text="Hasta (YYYY-MM-DD):", font=("", 10)).pack(pady=(5, 0))
+        entry_hasta = ttk.Entry(ventana, font=("", 10))
         entry_hasta.pack(pady=2)
         entry_hasta.insert(0, datetime.date.today().strftime("%Y-%m-%d"))
 
@@ -1487,15 +1998,15 @@ class LottoPredictorUI:
             desde = entry_desde.get().strip()
             hasta = entry_hasta.get().strip()
             ventana.destroy()
-            hilo = threading.Thread(target=self._scraper_rango_task, args=(desde, hasta), daemon=True)
+            salida, txt = self._crear_ventana_salida(f"Scrapear Rango: {desde} a {hasta}", ancho=600, alto=400)
+            hilo = threading.Thread(target=self._scraper_rango_task, args=(desde, hasta, txt), daemon=True)
             hilo.start()
 
+        entry_hasta.bind("<Return>", lambda e: ejecutar())
         ttk.Button(ventana, text="Scrapear", command=ejecutar).pack(pady=10)
 
-    def _scraper_rango_task(self, desde, hasta):
-        text = self._paneles["scraper_rango"]
-        redir = RedirectText(text)
-        self.root.after(0, lambda: text.delete("1.0", tk.END))
+    def _scraper_rango_task(self, desde, hasta, txt):
+        redir = RedirectText(txt)
         with contextlib.redirect_stdout(redir), contextlib.redirect_stderr(redir):
             nombre = self.current_lottery
             mod = LOTTERY_MODULES.get(nombre)

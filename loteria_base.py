@@ -1,13 +1,9 @@
-import sys
 import pandas as pd
-import datetime
 import os
 import numpy as np
-import logging
-from logging.handlers import RotatingFileHandler
 import pickle
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
 from sklearn.ensemble import RandomForestClassifier
@@ -15,7 +11,6 @@ from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
-import scipy.stats as stats
 
 from utils import setup_logging, mostrar_menu, ANIMALES_38, GRUPOS_ANIMALES, HORA_MAP_12_TO_24, ANIMAL_A_NUM_INT, NUM_INT_A_ANIMAL
 
@@ -34,13 +29,7 @@ class Loteria:
         self.le_global = None
         self.animal_a_num_int = ANIMAL_A_NUM_INT
         self.num_int_a_animal = NUM_INT_A_ANIMAL
-
-    def build_animal_a_grupo(self):
-        result = {}
-        for grupo, animales in self.config['grupos_animales'].items():
-            for a in animales:
-                result[a] = grupo
-        return result
+        self._cache_markov = {}
 
     def _transiciones_markov(self, df):
         from collections import defaultdict
@@ -916,12 +905,12 @@ class Loteria:
                               'Prob_Cooc', 'Lift_Dia', 'Racha_Num', 'Mismo_Num_3', 'Media_5_N', 'Std_5_N',
                               'Dif_Ciclica_N', 'Prob_Num_Hora', 'Gap_Num', 'Repite_Num']
         available_numeric = [f for f in numeric_candidates if f in df.columns]
-        animales_validos = list(self.animales_carac.keys())
+        ultimo_num = int(ultimo['Num_Int'])
         markov_scores = {}
-        if ultimo['Animal'] in trans_total:
-            for a in animales_validos:
-                p = trans_prob.get((ultimo['Animal'], a), 0)
-                if p > 0: markov_scores[a] = p
+        if ultimo_num in trans_total:
+            for n in range(38):
+                p = trans_prob.get((ultimo_num, n), 0)
+                if p > 0: markov_scores[n] = p
         markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:25]
         hourly_scores = prob_hora.get(hora_target, {})
         hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:25]
@@ -986,6 +975,58 @@ class Loteria:
         print(f"\n  Jugada recomendada: Top-3 con mayor consenso")
         return None
 
+    def prediccion_modelo_simple(self, datos, animal, hora_str, modelo, le_y, nombre_modelo):
+        """Retorna top-25 [(num_int, animal_name, prob_pct)] dados animal, hora y modelo."""
+        d = datos.copy()
+        num = self.animal_a_num_int.get(animal)
+        if num is None:
+            return []
+        d.iloc[-1, d.columns.get_loc('Num_Int')] = num
+        d.iloc[-1, d.columns.get_loc('Numero')] = num
+        d.iloc[-1, d.columns.get_loc('Animal')] = animal
+        d2 = self.agregar_caracteristicas_avanzadas(d)
+        numeric_candidates = ['Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
+                              'Frecuencia_10', 'Sorteos_Desde_Aparicion',
+                              'Color_Previo', 'Paridad_Previo',
+                              'Prob_Cooc', 'Lift_Dia', 'Racha_Num', 'Mismo_Num_3', 'Media_5_N', 'Std_5_N',
+                              'Dif_Ciclica_N', 'Prob_Num_Hora', 'Gap_Num', 'Repite_Num']
+        available_numeric = [f for f in numeric_candidates if f in d2.columns]
+        df_hora = d2[d2['Hora'] == hora_str].iloc[[-1]].copy()
+        if df_hora.empty:
+            return []
+        df_hora['Hora_Sorteo'] = hora_str
+        X = df_hora[available_numeric + ['Hora_Sorteo']]
+        if X.isnull().any().any():
+            return []
+        yp = modelo.predict_proba(X)[0]
+        top_idx = np.argsort(yp)[::-1][:25]
+        top_nums = le_y.inverse_transform(top_idx)
+        result = []
+        for idx, n in zip(top_idx, top_nums):
+            n_int = int(n)
+            a = self.num_int_a_animal.get(n_int, '?')
+            result.append((n_int, a, yp[idx] * 100))
+        return result
+
+    def imprimir_prediccion_modelo(self, datos, animal, hora_str, modelo, le_y, nombre_modelo):
+        """Imprime top-25 de un modelo (RF o XGB) para animal y hora dados."""
+        items = self.prediccion_modelo_simple(datos, animal, hora_str, modelo, le_y, nombre_modelo)
+        if not items:
+            print(f"  No se pudo generar prediccion {nombre_modelo} para {animal}")
+            return
+        try:
+            hora_12h = datetime.strptime(hora_str, '%H:%M:%S').strftime('%I:%M %p').lstrip('0')
+        except Exception:
+            hora_12h = hora_str
+        print(f"\n{'='*60}")
+        print(f"  PREDICCION {nombre_modelo}: {animal} -> {hora_12h}")
+        print(f"{'='*60}")
+        print(f"  {'#':>3} {'Num(Animal)':<18} {'Prob':>6}")
+        print(f"  {'-'*30}")
+        for i, (n, a, p) in enumerate(items, 1):
+            print(f"  {i:3d} {str(n):>2} ({a:<14}) {p:>5.1f}%")
+        print(f"{'='*60}\n")
+
     def evaluar_predicciones_historicas(self, datos, modelo_rf=None, le_rf=None, modelo_xgb=None, le_xgb=None, n_ultimos=500):
         df = datos.copy()
         if len(df) < 10:
@@ -1002,6 +1043,8 @@ class Loteria:
                               'Dif_Ciclica_N', 'Prob_Num_Hora', 'Gap_Num', 'Repite_Num']
         available_numeric = [f for f in numeric_candidates if f in df_eval.columns]
         trans_prob, trans_total = self._transiciones_markov(df)
+        d_prep = self.preparar_datos_markov(df)
+        _, _, trans_h, total_h = self.construir_matrices_markov(d_prep, incluir_trasnocho=False)
         freq_hora = self._frecuencias_hora(df, 'Solo_hora')
         global_freq = df['Num_Int'].value_counts(normalize=True).mul(100)
         global_top25 = set(global_freq.head(25).index)
@@ -1044,6 +1087,39 @@ class Loteria:
                 combined_mh_scores[n] = markov_scores[n] + hp
             combined_mh_top = sorted(combined_mh_scores, key=combined_mh_scores.get, reverse=True)[:25]
             combined_mh_rank = combined_mh_top.index(num_real) + 1 if num_real in combined_mh_top else None
+            hp_h = prev_state['Hora']
+            hn_h = actual['Hora']
+            pareja_h = (hp_h, hn_h)
+            markov_hora_scores = {}
+            if pareja_h in trans_h and ultimo_num in total_h.get(pareja_h, {}):
+                tot_hh = total_h[pareja_h][ultimo_num]
+                if tot_hh > 0:
+                    markov_hora_scores = {n2: cnt / tot_hh * 100 for n2, cnt in trans_h[pareja_h][ultimo_num].items()}
+            # Fill to 25 with global Markov probabilities
+            if len(markov_hora_scores) < 25 and ultimo_num in trans_total and trans_total[ultimo_num] > 0:
+                for n2 in range(38):
+                    if n2 not in markov_hora_scores:
+                        p = trans_prob.get((ultimo_num, n2), 0)
+                        if p > 0:
+                            markov_hora_scores[n2] = p
+                            if len(markov_hora_scores) >= 25:
+                                break
+            if len(markov_hora_scores) < 25:
+                for n2, pct in global_freq.items():
+                    if n2 not in markov_hora_scores:
+                        markov_hora_scores[n2] = pct
+                        if len(markov_hora_scores) >= 25:
+                            break
+            markov_hora_top = sorted(markov_hora_scores, key=markov_hora_scores.get, reverse=True)[:25]
+            markov_hora_rank = markov_hora_top.index(num_real) + 1 if num_real in markov_hora_top else None
+            m_hh = total_h.get(pareja_h, {}).get(ultimo_num, 0)
+            w_hh = min(0.9, max(0.1, m_hh / 50))
+            todos_hh = set(markov_scores) | set(markov_hora_scores)
+            global_hora_scores = {}
+            for n2 in todos_hh:
+                global_hora_scores[n2] = markov_scores.get(n2, 0) * (1 - w_hh) + markov_hora_scores.get(n2, 0) * w_hh
+            global_hora_top = sorted(global_hora_scores, key=global_hora_scores.get, reverse=True)[:25]
+            global_hora_rank = global_hora_top.index(num_real) + 1 if num_real in global_hora_top else None
             rf_top = []
             rf_rank = None
             rf_all_rank = None
@@ -1103,6 +1179,8 @@ class Loteria:
                 'markov_rank': markov_rank, 'markov_all_rank': markov_all_rank,
                 'hourly_rank': hourly_rank, 'hourly_all_rank': hourly_all_rank,
                 'combined_mh_rank': combined_mh_rank,
+                'markov_hora_rank': markov_hora_rank,
+                'global_hora_rank': global_hora_rank,
                 'rf_rank': rf_rank, 'rf_all_rank': rf_all_rank,
                 'xgb_rank': xgb_rank, 'xgb_all_rank': xgb_all_rank,
                 'combined_rf_xgb_rank': combined_rf_xgb_rank,
@@ -1112,8 +1190,8 @@ class Loteria:
         print(f"  EVALUACION AUTOMATICA: Prediccion vs Realidad")
         print(f"  Ultimos {len(resultados)} sorteos analizados")
         print(f"{'='*90}")
-        print(f"{'Fecha':<12} {'Hora':<6} {'Predicho':<13} {'Real':<13} {'Hit':<4} {'Rk-M':<5} {'Rk-H':<5} {'Rk-C(M+H)':<10} {'Rk-RF':<6} {'Rk-XGB':<7} {'C(R+X)':<7}")
-        print(f"{'-'*90}")
+        print(f"{'Fecha':<12} {'Hora':<6} {'Predicho':<13} {'Real':<13} {'Hit':<4} {'Rk-M':<5} {'Rk-MkH':<7} {'Rk-GxH':<7} {'Rk-H':<5} {'Rk-C(M+H)':<10} {'Rk-RF':<6} {'Rk-XGB':<7} {'C(R+X)':<7}")
+        print(f"{'-'*107}")
         for r in resultados[-20:]:
             ac = "OK" if r['acertado'] else "NO"
             rk_m = str(r['markov_rank']) if r['markov_rank'] else "-"
@@ -1122,9 +1200,11 @@ class Loteria:
             rk_rf = str(r['rf_rank']) if r['rf_rank'] else "-"
             rk_x = str(r['xgb_rank']) if r['xgb_rank'] else "-"
             rk_crx = str(r['combined_rf_xgb_rank']) if r['combined_rf_xgb_rank'] else "-"
+            rk_mkh = str(r['markov_hora_rank']) if r['markov_hora_rank'] else "-"
+            rk_gxh = str(r['global_hora_rank']) if r['global_hora_rank'] else "-"
             pred_str = f"{r['predicho']:2d}({self.num_int_a_animal.get(r['predicho'], '?'):<10})" if isinstance(r['predicho'], int) else str(r['predicho'])
             real_str = f"{r['real']:2d}({self.num_int_a_animal.get(r['real'], '?'):<10})" if isinstance(r['real'], int) else str(r['real'])
-            print(f"{str(r['fecha']):<12} {r['hora']:<6} {pred_str:<13} {real_str:<13} {ac:<4} {rk_m:<5} {rk_h:<5} {rk_c:<10} {rk_rf:<6} {rk_x:<7} {rk_crx:<7}")
+            print(f"{str(r['fecha']):<12} {r['hora']:<6} {pred_str:<13} {real_str:<13} {ac:<4} {rk_m:<5} {rk_mkh:<7} {rk_gxh:<7} {rk_h:<5} {rk_c:<10} {rk_rf:<6} {rk_x:<7} {rk_crx:<7}")
         total = len(resultados)
         if total > 0:
             markov_hits = sum(1 for r in resultados if r['markov_rank'] is not None)
@@ -1133,8 +1213,12 @@ class Loteria:
             rf_hits = sum(1 for r in resultados if r['rf_rank'] is not None)
             xgb_hits = sum(1 for r in resultados if r['xgb_rank'] is not None)
             combined_rx_hits = sum(1 for r in resultados if r['combined_rf_xgb_rank'] is not None)
+            markov_hora_hits = sum(1 for r in resultados if r['markov_hora_rank'] is not None)
+            global_hora_hits = sum(1 for r in resultados if r['global_hora_rank'] is not None)
             print(f"\nPRECISION TOP-25 por modelo:")
             print(f"  Markov (M):              {markov_hits}/{total} = {markov_hits/total*100:.1f}%")
+            print(f"  Markov x Hora (MkH):     {markov_hora_hits}/{total} = {markov_hora_hits/total*100:.1f}%")
+            print(f"  Global x Hora (GxH):     {global_hora_hits}/{total} = {global_hora_hits/total*100:.1f}%")
             print(f"  Hist. Hora (H):          {hourly_hits}/{total} = {hourly_hits/total*100:.1f}%")
             print(f"  M + H:                   {combined_mh_hits}/{total} = {combined_mh_hits/total*100:.1f}%")
             if rf_count > 0:
@@ -1147,10 +1231,11 @@ class Loteria:
             print(f"  Global Top-25:           {global_hits}/{total} = {global_hits/total*100:.1f}%")
         HORA_ORDER = ['08:00 AM','09:00 AM','10:00 AM','11:00 AM','12:00 PM','01:00 PM',
                       '02:00 PM','03:00 PM','04:00 PM','05:00 PM','06:00 PM','07:00 PM']
-        MODEL_RANK_MAP = {'Markov': 'markov_rank', 'Hora': 'hourly_rank', 'M+H': 'combined_mh_rank',
+        MODEL_RANK_MAP = {'Markov': 'markov_rank', 'MkHora': 'markov_hora_rank', 'GxHora': 'global_hora_rank',
+                          'Hora': 'hourly_rank', 'M+H': 'combined_mh_rank',
                           'RF': 'rf_rank', 'XGB': 'xgb_rank', 'RF+XGB': 'combined_rf_xgb_rank',
                           'Global': 'global_hit'}
-        visible_models = ['Markov', 'Hora', 'M+H', 'Global']
+        visible_models = ['Markov', 'MkHora', 'GxHora', 'Hora', 'M+H', 'Global']
         if rf_count > 0:
             visible_models.append('RF')
         if xgb_count > 0:
@@ -1183,18 +1268,908 @@ class Loteria:
         print(f"{'='*90}\n")
         return resultados
 
-    def analizar_aciertos_por_dia_semana(self, datos):
+    def _add_markov_hora_hit(self, df, i, prev_state, actual, num_real, trans_h, total_h, trans_prob=None, trans_total=None):
+        hp = prev_state['Hora']
+        hn = actual['Hora']
+        pareja = (hp, hn)
+        markov_hora_scores = {}
+        ultimo_num = prev_state['Num_Int']
+        if pareja in trans_h and ultimo_num in total_h.get(pareja, {}):
+            tot_h = total_h[pareja][ultimo_num]
+            if tot_h > 0:
+                for n2, cnt in trans_h[pareja][ultimo_num].items():
+                    markov_hora_scores[n2] = cnt / tot_h * 100
+        if not markov_hora_scores:
+            return False
+        # Fill to 25 with global Markov probabilities
+        if len(markov_hora_scores) < 25 and trans_prob is not None and trans_total is not None and ultimo_num in trans_total and trans_total[ultimo_num] > 0:
+            for n2 in range(38):
+                if n2 not in markov_hora_scores:
+                    p = trans_prob.get((ultimo_num, n2), 0)
+                    if p > 0:
+                        markov_hora_scores[n2] = p
+                        if len(markov_hora_scores) >= 25:
+                            break
+        if len(markov_hora_scores) < 25:
+            global_freq = df['Num_Int'].value_counts(normalize=True).mul(100)
+            for n2, pct in global_freq.items():
+                if n2 not in markov_hora_scores:
+                    markov_hora_scores[n2] = pct
+                    if len(markov_hora_scores) >= 25:
+                        break
+        markov_hora_top = sorted(markov_hora_scores, key=markov_hora_scores.get, reverse=True)[:25]
+        return num_real in markov_hora_top
+
+    def _eval_gxhora_hit(self, prev_state, actual, num_real, trans_prob, trans_total, trans_h, total_h, df, top_k=25):
+        """Retorna True si num_real esta en top_k de GxHora para la transicion."""
+        ultimo_num = int(prev_state['Num_Int'])
+        hp = prev_state['Hora']
+        hn = actual['Hora']
+        pareja_h = (hp, hn)
+
+        markov_scores = {}
+        if ultimo_num in trans_total and trans_total[ultimo_num] > 0:
+            for n in range(38):
+                p = trans_prob.get((ultimo_num, n), 0)
+                if p > 0:
+                    markov_scores[n] = p
+
+        markov_hora_scores = {}
+        if pareja_h in trans_h and ultimo_num in total_h.get(pareja_h, {}):
+            tot_hh = total_h[pareja_h][ultimo_num]
+            if tot_hh > 0:
+                for n2, cnt in trans_h[pareja_h][ultimo_num].items():
+                    markov_hora_scores[n2] = cnt / tot_hh * 100
+        if not markov_hora_scores and not markov_scores:
+            return False
+        # Fill MkHora to top_k
+        if len(markov_hora_scores) < top_k and ultimo_num in trans_total and trans_total[ultimo_num] > 0:
+            for n2 in range(38):
+                if n2 not in markov_hora_scores:
+                    p = trans_prob.get((ultimo_num, n2), 0)
+                    if p > 0:
+                        markov_hora_scores[n2] = p
+                        if len(markov_hora_scores) >= top_k:
+                            break
+        if len(markov_hora_scores) < top_k:
+            gf = df['Num_Int'].value_counts(normalize=True).mul(100)
+            for n2, pct in gf.items():
+                if n2 not in markov_hora_scores:
+                    markov_hora_scores[n2] = pct
+                    if len(markov_hora_scores) >= top_k:
+                        break
+
+        m_hh = total_h.get(pareja_h, {}).get(ultimo_num, 0)
+        w_hh = min(0.9, max(0.1, m_hh / 50))
+        todos = set(markov_scores) | set(markov_hora_scores)
+        gxh = {}
+        for n2 in todos:
+            gxh[n2] = markov_scores.get(n2, 0) * (1 - w_hh) + markov_hora_scores.get(n2, 0) * w_hh
+        top = sorted(gxh, key=gxh.get, reverse=True)[:top_k]
+        return num_real in top
+
+    def get_matriz_markov_por_dia(self, datos):
+        df = datos.copy()
+        df['Dia_Semana'] = pd.to_datetime(df['Fecha'].astype(str)).dt.day_name()
+        matrices = {}
+        for dia in df['Dia_Semana'].unique():
+            sub = df[df['Dia_Semana'] == dia]
+            if len(sub) < 5:
+                continue
+            matrices[dia] = self._transiciones_markov(sub)
+        return matrices
+
+    def prediccion_markov_dia_semana(self, datos, top_k=25, animal=None, hora=None, incluir_trasnocho=False):
+        df = datos.copy()
+        if len(df) < 10:
+            print("Pocos datos")
+            return
+        matrices = self.get_matriz_markov_por_dia(df)
+        from datetime import timedelta
+        fechas = pd.to_datetime(df['Fecha'].astype(str))
+        ultima_fecha = fechas.iloc[-1]
+
+        if animal is not None:
+            ultimo_num = self.animal_a_num_int.get(animal.upper())
+            if ultimo_num is None:
+                print(f"\n  Animal '{animal}' no valido")
+                return
+            num_animal = animal.upper()
+            if hora is None:
+                hora_str = "desconocida"
+                dia_hoy = ultima_fecha.strftime('%A')
+            else:
+                hora_str = hora
+                dt_h = pd.to_datetime(hora_str, format="%I:%M %p")
+                solo_hora = dt_h.strftime("%H:%M:%S")
+                # Detect trasnocho: 7PM -> 8AM next day
+                if incluir_trasnocho and solo_hora == '19:00:00':
+                    dia_hoy = (ultima_fecha + timedelta(days=1)).strftime('%A')
+                    print(f"  (trasnocho: 7PM -> 8AM del dia siguiente)")
+                else:
+                    dia_hoy = ultima_fecha.strftime('%A')
+            print(f"\n{'='*70}")
+            print(f"  PREDICCION MARKOV POR DIA DE SEMANA")
+            print(f"  Dia: {dia_hoy} | Animal: {num_animal} (#{ultimo_num}) | Hora: {hora_str}")
+            print(f"{'='*70}")
+        else:
+            ultimo = df.iloc[-1]
+            dia_hoy = ultima_fecha.strftime('%A')
+            print(f"\n{'='*70}")
+            print(f"  PREDICCION MARKOV POR DIA DE SEMANA")
+            print(f"  Dia: {dia_hoy} | Ultimo sorteo: {ultimo['Solo_hora']} - {ultimo['Animal']} (#{ultimo['Num_Int']})")
+            print(f"{'='*70}")
+            ultimo_num = int(ultimo['Num_Int'])
+        if dia_hoy not in matrices:
+            print(f"\n  No hay datos historicos para {dia_hoy}")
+            return
+        trans_prob, trans_total = matrices[dia_hoy]
+        scores = {}
+        if ultimo_num in trans_total and trans_total[ultimo_num] > 0:
+            for n in range(38):
+                p = trans_prob.get((ultimo_num, n), 0)
+                if p > 0:
+                    scores[n] = p
+        if not scores:
+            print(f"\n  No hay transiciones registradas para el numero {ultimo_num} en {dia_hoy}")
+            return
+        top = sorted(scores, key=scores.get, reverse=True)[:top_k]
+        print(f"\n  {'#':<3} {'Num':<6} {'Animal':<16} {'Prob':<8}")
+        print(f"  {'-'*35}")
+        for i, n in enumerate(top, 1):
+            nom = self.num_int_a_animal.get(n, '?')
+            print(f"  {i:<3} {n:<6} {nom:<16} {scores[n]:<8.2f}%")
+        print(f"\n{'='*70}\n")
+        return top
+
+    def evaluar_markov_dia_semana(self, datos, top_k=25):
+        df = datos.copy()
+        if len(df) < 10: print("Pocos datos"); return
+        matrices = self.get_matriz_markov_por_dia(df)
+        hits, horas, dias = [], [], []
+        for i in range(1, len(df)):
+            if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']: continue
+            prev, act = df.iloc[i-1], df.iloc[i]
+            num_real = act['Num_Int']
+            dia = pd.to_datetime(act['Fecha']).strftime('%A')
+            ul = int(prev['Num_Int'])
+            hit = False
+            if dia in matrices:
+                tp_d, tt_d = matrices[dia]
+                scores = {}
+                if ul in tt_d and tt_d[ul] > 0:
+                    for n in range(38):
+                        p = tp_d.get((ul, n), 0)
+                        if p > 0: scores[n] = p
+                top = sorted(scores, key=scores.get, reverse=True)[:top_k]
+                hit = num_real in top
+            hits.append(hit)
+            horas.append(act['Solo_hora'])
+            dias.append(dia)
+        self._print_model_stats(hits, horas, dias, 'Markov x Dia', top_k)
+        return hits
+
+    def _numeros_por_dia(self, df):
+        """Retorna dict dia -> set de numeros que han aparecido en ese dia."""
+        dfc = df.copy()
+        dfc['Dia_Semana'] = pd.to_datetime(dfc['Fecha'].astype(str)).dt.day_name()
+        return {d: set(g['Num_Int'].unique()) for d, g in dfc.groupby('Dia_Semana')}
+
+    def prediccion_gxhora_filtro_dia(self, datos, top_k=25):
+        """Predice con GxHora filtrando solo numeros que han salido en el dia actual."""
         df = datos.copy()
         if len(df) < 10:
             print("Pocos datos")
             return
         trans_prob, trans_total = self._transiciones_markov(df)
+        d_prep = self.preparar_datos_markov(df)
+        _, _, trans_h, total_h = self.construir_matrices_markov(d_prep, incluir_trasnocho=False)
+        nums_por_dia = self._numeros_por_dia(df)
+        ultimo = df.iloc[-1]
+        dia = pd.to_datetime(ultimo['Fecha']).strftime('%A')
+        DIA_NOMBRE = {'Monday':'Lunes','Tuesday':'Martes','Wednesday':'Miercoles','Thursday':'Jueves','Friday':'Viernes','Saturday':'Sabado','Sunday':'Domingo'}
+        candidatos = nums_por_dia.get(dia, set(range(38)))
+        print(f"\n{'='*70}")
+        print(f"  PREDICCION GxHora + FILTRO POR DIA")
+        print(f"  Dia: {DIA_NOMBRE.get(dia, dia)} | Candidatos: {len(candidatos)}/38")
+        print(f"  Ultimo: {ultimo['Solo_hora']} - {ultimo['Animal']} (#{ultimo['Num_Int']})")
+        print(f"{'='*70}")
+        scores = {}
+        for n in candidatos:
+            scores[n] = 0
+        ultimo_num = int(ultimo['Num_Int'])
+        hp = ultimo['Hora']
+        hn = None
+        for o, d in self.get_parejas_horarias():
+            if o == ultimo['Solo_hora']:
+                hn = d
+                break
+        if hn is None:
+            print("\n  No hay hora siguiente definida")
+            return
+        pareja_h = (hp, hn)
+        mk_scores = {}
+        if ultimo_num in trans_total and trans_total[ultimo_num] > 0:
+            for n in range(38):
+                p = trans_prob.get((ultimo_num, n), 0)
+                if p > 0:
+                    mk_scores[n] = p
+        mh_scores = {}
+        if pareja_h in trans_h and ultimo_num in total_h.get(pareja_h, {}):
+            tot = total_h[pareja_h][ultimo_num]
+            if tot > 0:
+                for n2, cnt in trans_h[pareja_h][ultimo_num].items():
+                    mh_scores[n2] = cnt / tot * 100
+        if len(mh_scores) < top_k and ultimo_num in trans_total and trans_total[ultimo_num] > 0:
+            for n2 in range(38):
+                if n2 not in mh_scores:
+                    p = trans_prob.get((ultimo_num, n2), 0)
+                    if p > 0:
+                        mh_scores[n2] = p
+                        if len(mh_scores) >= top_k:
+                            break
+        if len(mh_scores) < top_k:
+            gf = df['Num_Int'].value_counts(normalize=True).mul(100)
+            for n2, pct in gf.items():
+                if n2 not in mh_scores:
+                    mh_scores[n2] = pct
+                    if len(mh_scores) >= top_k:
+                        break
+        m_hh = total_h.get(pareja_h, {}).get(ultimo_num, 0)
+        w_hh = min(0.9, max(0.1, m_hh / 50))
+        todos = set(mk_scores) | set(mh_scores)
+        gxh = {}
+        for n2 in todos:
+            gxh[n2] = mk_scores.get(n2, 0) * (1 - w_hh) + mh_scores.get(n2, 0) * w_hh
+        top = sorted([(n, gxh.get(n, 0)) for n in candidatos if n in gxh], key=lambda x: x[1], reverse=True)[:top_k]
+        print(f"\n  {'#':<3} {'Num':<6} {'Animal':<16} {'Prob':<8}")
+        print(f"  {'-'*35}")
+        if not top:
+            print("  (sin datos para esta combinacion)")
+        for i, (n, p) in enumerate(top, 1):
+            nom = self.num_int_a_animal.get(n, '?')
+            print(f"  {i:<3} {n:<6} {nom:<16} {p:<8.2f}%")
+        print(f"\n  Nota: se filtraron {38 - len(candidatos)} numeros que nunca salieron en {DIA_NOMBRE.get(dia, dia)}")
+        print(f"\n{'='*70}\n")
+        return top
+
+    def evaluar_gxhora_filtro_dia(self, datos, top_k=25):
+        """Backtesting: compara GxHora normal vs GxHora con filtro por dia."""
+        df = datos.copy()
+        if len(df) < 10:
+            print("Pocos datos")
+            return
+        trans_prob, trans_total = self._transiciones_markov(df)
+        d_prep = self.preparar_datos_markov(df)
+        _, _, trans_h, total_h = self.construir_matrices_markov(d_prep, incluir_trasnocho=False)
+        nums_por_dia = self._numeros_por_dia(df)
+        df['Dia_Semana'] = pd.to_datetime(df['Fecha'].astype(str)).dt.day_name()
+        DIA_NOMBRE = {'Monday':'Lunes','Tuesday':'Martes','Wednesday':'Miercoles','Thursday':'Jueves','Friday':'Viernes','Saturday':'Sabado','Sunday':'Domingo'}
+        res_gxh = []
+        res_filt = []
+        res_dias = []
+        for i in range(1, len(df)):
+            if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']:
+                continue
+            prev = df.iloc[i-1]
+            act = df.iloc[i]
+            num_real = act['Num_Int']
+            dia = act['Dia_Semana']
+            gxh_hit = self._eval_gxhora_hit(prev, act, num_real, trans_prob, trans_total, trans_h, total_h, df, top_k=top_k)
+            candidatos = nums_por_dia.get(dia, set(range(38)))
+            res_gxh.append(gxh_hit)
+            res_filt.append(gxh_hit if num_real in candidatos else False)
+            res_dias.append(dia)
+        print(f"\n{'='*70}")
+        print(f"  EVALUACION GxHora + FILTRO POR DIA (Top-{top_k})")
+        print(f"  Basado en {len(res_gxh)} transiciones")
+        print(f"{'='*70}")
+        print(f"\n  {'Modelo':<25} {'% Acierto':<12} {'Candidatos':<12}")
+        print(f"  {'-'*49}")
+        print(f"  {'GxHora normal':<25} {np.mean(res_gxh)*100:<12.2f}% {38:<12}")
+        prom_filt = np.mean(res_filt)
+        prom_cands = np.mean([len(nums_por_dia.get(d, set(range(38)))) for d in res_dias])
+        print(f"  {'GxHora + filtro dia':<25} {prom_filt*100:<12.2f}% {prom_cands:<12.0f}")
+        print(f"\n  Por dia:")
+        for dia_en in DIA_NOMBRE:
+            d_res = [res_filt[j] for j in range(len(res_filt)) if res_dias[j] == dia_en]
+            if not d_res:
+                continue
+            print(f"    {DIA_NOMBRE[dia_en]:<12} {np.mean(d_res)*100:.1f}% ({len(d_res)} muestras)")
+        diff = prom_filt - np.mean(res_gxh)
+        print(f"\n  Diferencia con GxHora normal: {diff*100:+.2f}%")
+        print(f"  Candidatos promedio: {prom_cands:.0f}/38 ({100-prom_cands/38*100:.0f}% reduccion)")
+        print(f"\n{'='*70}\n")
+        return {'gxh': np.mean(res_gxh), 'filt': prom_filt}
+
+    def prediccion_markov_hora_dia(self, datos, top_k=25):
+        """Predice combinando Markov x Hora + dia de semana."""
+        df = datos.copy()
+        if len(df) < 10:
+            print("Pocos datos")
+            return
+        trans_prob, trans_total = self._transiciones_markov(df)
+        d_prep = self.preparar_datos_markov(df)
+        _, _, trans_h_g, total_h_g = self.construir_matrices_markov(d_prep, incluir_trasnocho=False)
+        ultimo = df.iloc[-1]
+        dia = pd.to_datetime(ultimo['Fecha']).strftime('%A')
+        DIA_NOMBRE = {'Monday':'Lunes','Tuesday':'Martes','Wednesday':'Miercoles','Thursday':'Jueves','Friday':'Viernes','Saturday':'Sabado','Sunday':'Domingo'}
+        sub = df[pd.to_datetime(df['Fecha'].astype(str)).dt.strftime('%A') == dia]
+        mh_scores = {}
+        if len(sub) >= 5:
+            sub_prep = self.preparar_datos_markov(sub)
+            _, _, trans_h_d, total_h_d = self.construir_matrices_markov(sub_prep, incluir_trasnocho=False)
+            hp = ultimo['Hora']
+            hn = None
+            for o, d in self.get_parejas_horarias():
+                if o == ultimo['Solo_hora']:
+                    hn = d
+                    break
+            if hn:
+                pareja = (hp, hn)
+                ul = int(ultimo['Num_Int'])
+                if pareja in trans_h_d and ul in total_h_d.get(pareja, {}):
+                    tot = total_h_d[pareja][ul]
+                    if tot > 0:
+                        for n2, cnt in trans_h_d[pareja][ul].items():
+                            mh_scores[n2] = cnt / tot * 100
+        print(f"\n{'='*70}")
+        print(f"  PREDICCION MkHora + DIA")
+        print(f"  Dia: {DIA_NOMBRE.get(dia, dia)} | Muestras del dia: {len(sub)}")
+        print(f"  Ultimo: {ultimo['Solo_hora']} - {ultimo['Animal']} (#{ultimo['Num_Int']})")
+        print(f"{'='*70}")
+        if mh_scores:
+            top = sorted(mh_scores, key=mh_scores.get, reverse=True)[:top_k]
+            print(f"\n  {'#':<3} {'Num':<6} {'Animal':<16} {'Prob':<8}")
+            print(f"  {'-'*35}")
+            for i, n in enumerate(top, 1):
+                nom = self.num_int_a_animal.get(n, '?')
+                print(f"  {i:<3} {n:<6} {nom:<16} {mh_scores[n]:<8.2f}%")
+        else:
+            print(f"\n  Sin datos de MkHora para este dia. Usando MkHora global...")
+            scores = {}
+            hp = ultimo['Hora']
+            hn = None
+            for o, d in self.get_parejas_horarias():
+                if o == ultimo['Solo_hora']:
+                    hn = d
+                    break
+            if hn:
+                pareja = (hp, hn)
+                ul = int(ultimo['Num_Int'])
+                if pareja in trans_h_g and ul in total_h_g.get(pareja, {}):
+                    tot = total_h_g[pareja][ul]
+                    if tot > 0:
+                        for n2, cnt in trans_h_g[pareja][ul].items():
+                            scores[n2] = cnt / tot * 100
+                if len(scores) < top_k and ul in trans_total and trans_total[ul] > 0:
+                    for n2 in range(38):
+                        if n2 not in scores:
+                            p = trans_prob.get((ul, n2), 0)
+                            if p > 0:
+                                scores[n2] = p
+                                if len(scores) >= top_k:
+                                    break
+                if len(scores) < top_k:
+                    gf = df['Num_Int'].value_counts(normalize=True).mul(100)
+                    for n2, pct in gf.items():
+                        if n2 not in scores:
+                            scores[n2] = pct
+                            if len(scores) >= top_k:
+                                break
+                top = sorted(scores, key=scores.get, reverse=True)[:top_k]
+                print(f"\n  {'#':<3} {'Num':<6} {'Animal':<16} {'Prob':<8}")
+                print(f"  {'-'*35}")
+                for i, n in enumerate(top, 1):
+                    nom = self.num_int_a_animal.get(n, '?')
+                    print(f"  {i:<3} {n:<6} {nom:<16} {scores[n]:<8.2f}%")
+        print(f"\n{'='*70}\n")
+
+    def evaluar_markov_hora_dia(self, datos, top_k=25):
+        """Backtesting: compara MkHora normal vs MkHora+Dia."""
+        df = datos.copy()
+        if len(df) < 10:
+            print("Pocos datos")
+            return
+        trans_prob, trans_total = self._transiciones_markov(df)
+        d_prep = self.preparar_datos_markov(df)
+        _, _, trans_h_g, total_h_g = self.construir_matrices_markov(d_prep, incluir_trasnocho=False)
+        global_freq = df['Num_Int'].value_counts(normalize=True).mul(100)
+        df['Dia_Semana'] = pd.to_datetime(df['Fecha'].astype(str)).dt.day_name()
+        DIA_NOMBRE = {'Monday':'Lunes','Tuesday':'Martes','Wednesday':'Miercoles','Thursday':'Jueves','Friday':'Viernes','Saturday':'Sabado','Sunday':'Domingo'}
+        matrices_dia = {}
+        for dia in df['Dia_Semana'].unique():
+            sub = df[df['Dia_Semana'] == dia]
+            if len(sub) >= 5:
+                sub_prep = self.preparar_datos_markov(sub)
+                _, _, th, toh = self.construir_matrices_markov(sub_prep, incluir_trasnocho=False)
+                matrices_dia[dia] = (th, toh)
+        res_mkh = []
+        res_mkhd = []
+        for i in range(1, len(df)):
+            if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']:
+                continue
+            prev = df.iloc[i-1]
+            act = df.iloc[i]
+            num_real = act['Num_Int']
+            dia = act['Dia_Semana']
+            hp = prev['Hora']
+            hn = act['Hora']
+            pareja = (hp, hn)
+            ul = int(prev['Num_Int'])
+            mkh_hit = self._add_markov_hora_hit(df, i, prev, act, num_real, trans_h_g, total_h_g, trans_prob, trans_total)
+            res_mkh.append(mkh_hit)
+            mkhd_hit = False
+            if dia in matrices_dia:
+                th_d, toh_d = matrices_dia[dia]
+                scores = {}
+                if pareja in th_d and ul in toh_d.get(pareja, {}):
+                    tot = toh_d[pareja][ul]
+                    if tot > 0:
+                        for n2, cnt in th_d[pareja][ul].items():
+                            scores[n2] = cnt / tot * 100
+                if len(scores) < top_k and ul in trans_total and trans_total[ul] > 0:
+                    for n2 in range(38):
+                        if n2 not in scores:
+                            p = trans_prob.get((ul, n2), 0)
+                            if p > 0:
+                                scores[n2] = p
+                                if len(scores) >= top_k:
+                                    break
+                if len(scores) < top_k:
+                    for n2, pct in global_freq.items():
+                        if n2 not in scores:
+                            scores[n2] = pct
+                            if len(scores) >= top_k:
+                                break
+                top_mkhd = sorted(scores, key=scores.get, reverse=True)[:top_k]
+                mkhd_hit = num_real in top_mkhd
+            res_mkhd.append(mkhd_hit)
+        print(f"\n{'='*70}")
+        print(f"  EVALUACION MkHora + DIA (Top-{top_k})")
+        print(f"  Basado en {len(res_mkh)} transiciones")
+        print(f"{'='*70}")
+        print(f"\n  {'Modelo':<20} {'% Acierto':<12}")
+        print(f"  {'-'*32}")
+        print(f"  {'MkHora normal':<20} {np.mean(res_mkh)*100:<12.2f}%")
+        print(f"  {'MkHora + Dia':<20} {np.mean(res_mkhd)*100:<12.2f}%")
+        diff = np.mean(res_mkhd) - np.mean(res_mkh)
+        print(f"  {'Diferencia':<20} {diff*100:<+12.2f}%")
+        print(f"\n  Por dia:")
+        for dia_en in DIA_NOMBRE:
+            d_res_mkh = [res_mkh[j] for j in range(len(res_mkh)) if res_dias[j] == dia_en]
+            d_res_mkhd = [res_mkhd[j] for j in range(len(res_mkhd)) if res_dias[j] == dia_en]
+            if not d_res_mkh:
+                continue
+            print(f"    {DIA_NOMBRE[dia_en]:<12} MkHora={np.mean(d_res_mkh)*100:.1f}%  MkHora+Dia={np.mean(d_res_mkhd)*100:.1f}% ({len(d_res_mkh)} muestras)")
+        print(f"\n{'='*70}\n")
+        return {'mkh': np.mean(res_mkh), 'mkhd': np.mean(res_mkhd)}
+
+    def _print_model_stats(self, hits, horas, dias, nombre, top_k):
+        """Helper: imprime formato compacto de evaluacion con mejor/peor."""
+        print(f"\n{'='*70}")
+        print(f"  EVALUACION: {nombre} (Top-{top_k})")
+        print(f"  Basado en {len(hits)} transiciones")
+        print(f"{'='*70}")
+        print(f"\n  {'Global:':<12} {np.mean(hits)*100:<.2f}%")
+        DIA_NOMBRE = {'Monday':'Lunes','Tuesday':'Martes','Wednesday':'Miercoles','Thursday':'Jueves','Friday':'Viernes','Saturday':'Sabado','Sunday':'Domingo'}
+        HORA_ORDER = ['08:00 AM','09:00 AM','10:00 AM','11:00 AM','12:00 PM','01:00 PM',
+                      '02:00 PM','03:00 PM','04:00 PM','05:00 PM','06:00 PM','07:00 PM']
+        print(f"\n  Por hora:")
+        print(f"  {'Hora':<12} {'% Acierto':<12} {'Muestras':<8}")
+        print(f"  {'-'*32}")
+        pcts_h = {}
+        for h in HORA_ORDER:
+            sub = [hits[j] for j in range(len(hits)) if horas[j] == h]
+            if not sub: continue
+            pct = np.mean(sub) * 100
+            pcts_h[h] = pct
+            print(f"  {h:<12} {pct:<12.1f}% {len(sub):<8}")
+        mejor_h = max(pcts_h, key=pcts_h.get) if pcts_h else ''
+        peor_h = min(pcts_h, key=pcts_h.get) if pcts_h else ''
+        print(f"\n  Mejor: {mejor_h} ({pcts_h.get(mejor_h, 0):.1f}%)")
+        print(f"  Peor:  {peor_h} ({pcts_h.get(peor_h, 0):.1f}%)")
+        print(f"\n  Por dia:")
+        print(f"  {'Dia':<12} {'% Acierto':<12} {'Muestras':<8}")
+        print(f"  {'-'*32}")
+        pcts_d = {}
+        for d in ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']:
+            sub = [hits[j] for j in range(len(hits)) if dias[j] == d]
+            if not sub: continue
+            pct = np.mean(sub) * 100
+            pcts_d[d] = pct
+            print(f"  {DIA_NOMBRE[d]:<12} {pct:<12.1f}% {len(sub):<8}")
+        mejor_d = max(pcts_d, key=pcts_d.get) if pcts_d else ''
+        peor_d = min(pcts_d, key=pcts_d.get) if pcts_d else ''
+        print(f"\n  Mejor: {DIA_NOMBRE.get(mejor_d, mejor_d)} ({pcts_d.get(mejor_d, 0):.1f}%)")
+        print(f"  Peor:  {DIA_NOMBRE.get(peor_d, peor_d)} ({pcts_d.get(peor_d, 0):.1f}%)")
+        riesgo_h = [f"{h}({pcts_h[h]:.1f}%)" for h in sorted(pcts_h, key=pcts_h.get) if pcts_h[h] < 75]
+        riesgo_d = [f"{DIA_NOMBRE[d]}({pcts_d[d]:.1f}%)" for d in sorted(pcts_d, key=pcts_d.get) if pcts_d[d] < 75]
+        if riesgo_h:
+            print(f"\n  Horas de riesgo (< 75%): {'; '.join(riesgo_h)}")
+        if riesgo_d:
+            print(f"  Dias de riesgo (< 75%): {'; '.join(riesgo_d)}")
+        print(f"\n{'='*70}\n")
+
+    def evaluar_markov_global(self, datos, top_k=25):
+        df = datos.copy()
+        if len(df) < 10: print("Pocos datos"); return
+        trans_prob, trans_total = self._transiciones_markov(df)
+        hits, horas, dias = [], [], []
+        for i in range(1, len(df)):
+            if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']: continue
+            prev, act = df.iloc[i-1], df.iloc[i]
+            num_real = act['Num_Int']
+            ul = int(prev['Num_Int'])
+            scores = {}
+            if ul in trans_total and trans_total[ul] > 0:
+                for n in range(38):
+                    p = trans_prob.get((ul, n), 0)
+                    if p > 0: scores[n] = p
+            top = sorted(scores, key=scores.get, reverse=True)[:top_k]
+            hits.append(num_real in top)
+            horas.append(act['Solo_hora'])
+            dias.append(pd.to_datetime(act['Fecha']).strftime('%A'))
+        self._print_model_stats(hits, horas, dias, 'Markov Global', top_k)
+        return hits
+
+    def evaluar_frecuencia_hora(self, datos, top_k=25):
+        df = datos.copy()
+        if len(df) < 10: print("Pocos datos"); return
         freq_hora = self._frecuencias_hora(df, 'Solo_hora')
+        hits, horas, dias = [], [], []
+        for i in range(1, len(df)):
+            if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']: continue
+            act = df.iloc[i]
+            num_real = act['Num_Int']
+            hora_real = act['Solo_hora']
+            scores = {}
+            if hora_real in freq_hora:
+                for n, p in freq_hora[hora_real].items():
+                    scores[n] = p
+            top = sorted(scores, key=scores.get, reverse=True)[:top_k]
+            hits.append(num_real in top)
+            horas.append(hora_real)
+            dias.append(pd.to_datetime(act['Fecha']).strftime('%A'))
+        self._print_model_stats(hits, horas, dias, 'Frecuencia x Hora', top_k)
+        return hits
+
+    def evaluar_markov_hora(self, datos, top_k=25):
+        df = datos.copy()
+        if len(df) < 10: print("Pocos datos"); return
+        trans_prob, trans_total = self._transiciones_markov(df)
+        d_prep = self.preparar_datos_markov(df)
+        _, _, trans_h, total_h = self.construir_matrices_markov(d_prep, incluir_trasnocho=False)
+        hits, horas, dias = [], [], []
+        for i in range(1, len(df)):
+            if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']: continue
+            prev, act = df.iloc[i-1], df.iloc[i]
+            num_real = act['Num_Int']
+            hit = self._add_markov_hora_hit(df, i, prev, act, num_real, trans_h, total_h, trans_prob, trans_total)
+            hits.append(hit)
+            horas.append(act['Solo_hora'])
+            dias.append(pd.to_datetime(act['Fecha']).strftime('%A'))
+        self._print_model_stats(hits, horas, dias, 'Markov x Hora (MkHora)', top_k)
+        return hits
+
+    def evaluar_gxhora(self, datos, top_k=25):
+        df = datos.copy()
+        if len(df) < 10: print("Pocos datos"); return
+        trans_prob, trans_total = self._transiciones_markov(df)
+        d_prep = self.preparar_datos_markov(df)
+        _, _, trans_h, total_h = self.construir_matrices_markov(d_prep, incluir_trasnocho=False)
+        hits, horas, dias = [], [], []
+        for i in range(1, len(df)):
+            if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']: continue
+            prev, act = df.iloc[i-1], df.iloc[i]
+            num_real = act['Num_Int']
+            hit = self._eval_gxhora_hit(prev, act, num_real, trans_prob, trans_total, trans_h, total_h, df, top_k=top_k)
+            hits.append(hit)
+            horas.append(act['Solo_hora'])
+            dias.append(pd.to_datetime(act['Fecha']).strftime('%A'))
+        self._print_model_stats(hits, horas, dias, 'GxHora', top_k)
+        return hits
+
+    def evaluar_top5_completo(self, datos, top_k=25):
+        """Tabla detallada con los 5 modelos (sin ML)."""
+        df = datos.copy()
+        if len(df) < 10: print("Pocos datos"); return
+        trans_prob, trans_total = self._transiciones_markov(df)
+        d_prep = self.preparar_datos_markov(df)
+        _, _, trans_h, total_h = self.construir_matrices_markov(d_prep, incluir_trasnocho=False)
+        freq_hora = self._frecuencias_hora(df, 'Solo_hora')
+        matrices = self.get_matriz_markov_por_dia(df)
+        DIA_NOMBRE = {'Monday':'Lunes','Tuesday':'Martes','Wednesday':'Miercoles','Thursday':'Jueves','Friday':'Viernes','Saturday':'Sabado','Sunday':'Domingo'}
+        rows = []
+        resumen = { 'M':[], 'MkH':[], 'GxH':[], 'H':[], 'MxD':[] }
+        for i in range(1, len(df)):
+            if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']: continue
+            prev, act = df.iloc[i-1], df.iloc[i]
+            num_real = int(act['Num_Int'])
+            fecha, hora_r = act['Fecha'], act['Solo_hora']
+            ul = int(prev['Num_Int'])
+            dia = pd.to_datetime(fecha).strftime('%A')
+
+            # Markov global ranks
+            mk_scores = {}
+            if ul in trans_total and trans_total[ul] > 0:
+                for n in range(38):
+                    p = trans_prob.get((ul, n), 0)
+                    if p > 0: mk_scores[n] = p
+            mk_full = sorted(mk_scores, key=mk_scores.get, reverse=True)
+            mk_top = mk_full[:top_k]
+            rk_m = (mk_top.index(num_real) + 1) if num_real in mk_top else '-'
+
+            # Frecuencia x Hora
+            h_scores = {}
+            if hora_r in freq_hora:
+                for n, p in freq_hora[hora_r].items():
+                    h_scores[n] = p
+            h_full = sorted(h_scores, key=h_scores.get, reverse=True)
+            h_top = h_full[:top_k]
+            rk_h = (h_top.index(num_real) + 1) if num_real in h_top else '-'
+
+            # MkHora
+            hp, hn = prev['Hora'], act['Hora']
+            pareja_h = (hp, hn)
+            mh_scores = {}
+            if pareja_h in trans_h and ul in total_h.get(pareja_h, {}):
+                tot = total_h[pareja_h][ul]
+                if tot > 0:
+                    for n2, cnt in trans_h[pareja_h][ul].items():
+                        mh_scores[n2] = cnt / tot * 100
+            if len(mh_scores) < top_k and ul in trans_total and trans_total[ul] > 0:
+                for n2 in range(38):
+                    if n2 not in mh_scores:
+                        p = trans_prob.get((ul, n2), 0)
+                        if p > 0:
+                            mh_scores[n2] = p
+                            if len(mh_scores) >= top_k: break
+            if len(mh_scores) < top_k:
+                gf = df['Num_Int'].value_counts(normalize=True).mul(100)
+                for n2, pct in gf.items():
+                    if n2 not in mh_scores:
+                        mh_scores[n2] = pct
+                        if len(mh_scores) >= top_k: break
+            mh_full = sorted(mh_scores, key=mh_scores.get, reverse=True)
+            mh_top = mh_full[:top_k]
+            rk_mkh = (mh_top.index(num_real) + 1) if num_real in mh_top else '-'
+
+            # GxHora
+            todos = set(mk_scores) | set(mh_scores)
+            gxh_scores = {}
+            m_hh = total_h.get(pareja_h, {}).get(ul, 0)
+            w_hh = min(0.9, max(0.1, m_hh / 50))
+            for n2 in todos:
+                gxh_scores[n2] = mk_scores.get(n2, 0) * (1 - w_hh) + mh_scores.get(n2, 0) * w_hh
+            gxh_full = sorted(gxh_scores, key=gxh_scores.get, reverse=True)
+            gxh_top = gxh_full[:top_k]
+            rk_gxh = (gxh_top.index(num_real) + 1) if num_real in gxh_top else '-'
+
+            # Markov x Dia
+            rk_mxd = '-'
+            if dia in matrices:
+                tp_d, tt_d = matrices[dia]
+                d_scores = {}
+                if ul in tt_d and tt_d[ul] > 0:
+                    for n in range(38):
+                        p = tp_d.get((ul, n), 0)
+                        if p > 0: d_scores[n] = p
+                d_full = sorted(d_scores, key=d_scores.get, reverse=True)
+                d_top = d_full[:top_k]
+                rk_mxd = (d_top.index(num_real) + 1) if num_real in d_top else '-'
+
+            predicho = mk_top[0] if mk_top else '?'
+            pred_str = f"{predicho}({self.num_int_a_animal.get(predicho, '?'):<12})" if isinstance(predicho, int) else f"{'?':>2}({'?':<12})"
+            real_str = f"{num_real:>2}({self.num_int_a_animal.get(num_real, '?'):<12})"
+            any_hit = (rk_m != '-' or rk_mkh != '-' or rk_gxh != '-' or rk_h != '-' or rk_mxd != '-')
+            hit_str = "OK" if any_hit else "NO"
+            rows.append((fecha, hora_r, pred_str, real_str, hit_str,
+                        str(rk_m), str(rk_mkh), str(rk_gxh), str(rk_h), str(rk_mxd)))
+            # Fill summary for each model
+            resumen['M'].append(rk_m != '-')
+            resumen['MkH'].append(rk_mkh != '-')
+            resumen['GxH'].append(rk_gxh != '-')
+            resumen['H'].append(rk_h != '-')
+            resumen['MxD'].append(rk_mxd != '-')
+
+        print(f"\n{'='*110}")
+        print(f"  EVALUACION COMPLETA — 5 MODELOS (Top-{top_k})")
+        print(f"  {len(rows)} transiciones analizadas")
+        print(f"{'='*110}")
+        header = f"{'Fecha':<12} {'Hora':<10} {'Predicho':<19} {'Real':<19} {'Hit':<5} {'Rk-M':<6} {'Rk-MkH':<8} {'Rk-GxH':<8} {'Rk-H':<6} {'Rk-MxD':<8}"
+        print(f"\n{header}")
+        print("-" * len(header))
+        for r in rows:
+            print(f"{r[0]:<12} {r[1]:<10} {r[2]:<19} {r[3]:<19} {r[4]:<5} {r[5]:<6} {r[6]:<8} {r[7]:<8} {r[8]:<6} {r[9]:<8}")
+        print(f"\n{'='*110}")
+        print(f"\n  PRECISION TOP-{top_k} por modelo:")
+        print(f"  {'-'*40}")
+        labels = [('Markov (M)', 'M'), ('Markov x Hora (MkH)', 'MkH'), ('GxHora (GxH)', 'GxH'),
+                  ('Frec. Hora (H)', 'H'), ('Markov x Dia (MxD)', 'MxD')]
+        for label, key in labels:
+            total = len(resumen[key])
+            aciertos = sum(resumen[key])
+            if total > 0:
+                print(f"  {label:<25} {aciertos:>4}/{total} = {aciertos/total*100:.1f}%")
+        print(f"\n{'='*110}\n")
+        return rows
+
+    def analizar_aciertos_por_dia_semana(self, datos, top_k=25):
+        df = datos.copy()
+        if len(df) < 10:
+            print("Pocos datos")
+            return
+        trans_prob, trans_total = self._transiciones_markov(df)
+        d_prep = self.preparar_datos_markov(df)
+        _, _, trans_h, total_h = self.construir_matrices_markov(d_prep, incluir_trasnocho=False)
         df['Dia_Semana'] = pd.to_datetime(df['Fecha'].astype(str)).dt.day_name()
         DIA_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         DIA_NOMBRE = {'Monday':'Lunes','Tuesday':'Martes','Wednesday':'Miercoles','Thursday':'Jueves','Friday':'Viernes','Saturday':'Sabado','Sunday':'Domingo'}
         resultados = []
-        numeros_validos = list(range(38))
+        for i in range(1, len(df)):
+            if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']:
+                continue
+            prev_state = df.iloc[i-1]
+            actual = df.iloc[i]
+            num_real = actual['Num_Int']
+            hit = self._eval_gxhora_hit(prev_state, actual, num_real, trans_prob, trans_total, trans_h, total_h, df, top_k=top_k)
+            resultados.append({'dia': df.iloc[i]['Dia_Semana'], 'gxh': hit})
+        df_res = pd.DataFrame(resultados)
+        if df_res.empty:
+            print("No se generaron resultados")
+            return
+        print(f"\n{'='*60}")
+        print(f"  ACIERTOS GxHora POR DIA DE LA SEMANA (Top-{top_k})")
+        print(f"  Basado en {len(df_res)} sorteos analizados")
+        print(f"{'='*60}")
+        print(f"\n{'Dia':<12} {'% Acierto':<12} {'Sorteos':<8}")
+        print(f"{'-'*32}")
+        for dia_en in DIA_ORDER:
+            sub = df_res[df_res['dia'] == dia_en]
+            if len(sub) == 0:
+                continue
+            pct = sub['gxh'].mean() * 100
+            print(f"{DIA_NOMBRE[dia_en]:<12} {pct:<12.1f}% {len(sub):<8}")
+        print(f"\n  Global: {df_res['gxh'].mean()*100:.1f}%")
+        best_dia = df_res.groupby('dia')['gxh'].mean().idxmax()
+        best_val = df_res.groupby('dia')['gxh'].mean().max() * 100
+        print(f"  Mejor dia: {DIA_NOMBRE[best_dia]} ({best_val:.1f}%)")
+        print(f"\n{'='*60}\n")
+        return df_res
+
+    def analizar_aciertos_por_hora(self, datos, top_k=25):
+        df = datos.copy()
+        if len(df) < 10:
+            print("Pocos datos")
+            return
+        trans_prob, trans_total = self._transiciones_markov(df)
+        d_prep = self.preparar_datos_markov(df)
+        _, _, trans_h, total_h = self.construir_matrices_markov(d_prep, incluir_trasnocho=False)
+        HORA_ORDER = ['08:00 AM','09:00 AM','10:00 AM','11:00 AM','12:00 PM','01:00 PM',
+                      '02:00 PM','03:00 PM','04:00 PM','05:00 PM','06:00 PM','07:00 PM']
+        resultados = []
+        for i in range(1, len(df)):
+            if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']:
+                continue
+            prev_state = df.iloc[i-1]
+            actual = df.iloc[i]
+            num_real = actual['Num_Int']
+            hora_real = actual['Solo_hora']
+            hit = self._eval_gxhora_hit(prev_state, actual, num_real, trans_prob, trans_total, trans_h, total_h, df, top_k=top_k)
+            resultados.append({'hora': hora_real, 'gxh': hit})
+        df_res = pd.DataFrame(resultados)
+        if df_res.empty:
+            print("No se generaron resultados")
+            return
+        print(f"\n{'='*60}")
+        print(f"  ACIERTOS GxHora POR HORA (Top-{top_k})")
+        print(f"  Basado en {len(df_res)} sorteos analizados")
+        print(f"{'='*60}")
+        print(f"\n{'Hora':<12} {'% Acierto':<12} {'Sorteos':<8}")
+        print(f"{'-'*32}")
+        for h in HORA_ORDER:
+            sub = df_res[df_res['hora'] == h]
+            if len(sub) == 0:
+                continue
+            pct = sub['gxh'].mean() * 100
+            print(f"{h:<12} {pct:<12.1f}% {len(sub):<8}")
+        print(f"\n  Global: {df_res['gxh'].mean()*100:.1f}%")
+        best_h = df_res.groupby('hora')['gxh'].mean().idxmax()
+        best_val = df_res.groupby('hora')['gxh'].mean().max() * 100
+        print(f"  Mejor hora: {best_h} ({best_val:.1f}%)")
+        print(f"\n{'='*60}\n")
+        return df_res
+
+    def analizar_fallos_por_dia_semana(self, datos, top_k=25):
+        df = datos.copy()
+        if len(df) < 10:
+            print("Pocos datos")
+            return
+        trans_prob, trans_total = self._transiciones_markov(df)
+        d_prep = self.preparar_datos_markov(df)
+        _, _, trans_h, total_h = self.construir_matrices_markov(d_prep, incluir_trasnocho=False)
+        df['Dia_Semana'] = pd.to_datetime(df['Fecha'].astype(str)).dt.day_name()
+        DIA_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        DIA_NOMBRE = {'Monday':'Lunes','Tuesday':'Martes','Wednesday':'Miercoles','Thursday':'Jueves','Friday':'Viernes','Saturday':'Sabado','Sunday':'Domingo'}
+        resultados = []
+        for i in range(1, len(df)):
+            if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']:
+                continue
+            prev_state = df.iloc[i-1]
+            actual = df.iloc[i]
+            num_real = actual['Num_Int']
+            fallo = not self._eval_gxhora_hit(prev_state, actual, num_real, trans_prob, trans_total, trans_h, total_h, df, top_k=top_k)
+            resultados.append({'dia': df.iloc[i]['Dia_Semana'], 'gxh': fallo})
+        df_res = pd.DataFrame(resultados)
+        if df_res.empty:
+            print("No se generaron resultados")
+            return
+        print(f"\n{'='*60}")
+        print(f"  FALLOS GxHora POR DIA DE LA SEMANA (Top-{top_k})")
+        print(f"  Basado en {len(df_res)} sorteos analizados")
+        print(f"{'='*60}")
+        print(f"\n{'Dia':<12} {'% Fallo':<12} {'Sorteos':<8}")
+        print(f"{'-'*32}")
+        for dia_en in DIA_ORDER:
+            sub = df_res[df_res['dia'] == dia_en]
+            if len(sub) == 0:
+                continue
+            pct = sub['gxh'].mean() * 100
+            print(f"{DIA_NOMBRE[dia_en]:<12} {pct:<12.1f}% {len(sub):<8}")
+        print(f"\n  Global: {df_res['gxh'].mean()*100:.1f}%")
+        print(f"\n{'='*60}\n")
+        return df_res
+
+    def analizar_fallos_por_hora(self, datos, top_k=25):
+        df = datos.copy()
+        if len(df) < 10:
+            print("Pocos datos")
+            return
+        trans_prob, trans_total = self._transiciones_markov(df)
+        d_prep = self.preparar_datos_markov(df)
+        _, _, trans_h, total_h = self.construir_matrices_markov(d_prep, incluir_trasnocho=False)
+        HORA_ORDER = ['08:00 AM','09:00 AM','10:00 AM','11:00 AM','12:00 PM','01:00 PM',
+                      '02:00 PM','03:00 PM','04:00 PM','05:00 PM','06:00 PM','07:00 PM']
+        resultados = []
+        for i in range(1, len(df)):
+            if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']:
+                continue
+            prev_state = df.iloc[i-1]
+            actual = df.iloc[i]
+            num_real = actual['Num_Int']
+            hora_real = actual['Solo_hora']
+            fallo = not self._eval_gxhora_hit(prev_state, actual, num_real, trans_prob, trans_total, trans_h, total_h, df, top_k=top_k)
+            resultados.append({'hora': hora_real, 'gxh': fallo})
+        df_res = pd.DataFrame(resultados)
+        if df_res.empty:
+            print("No se generaron resultados")
+            return
+        print(f"\n{'='*60}")
+        print(f"  FALLOS GxHora POR HORA (Top-{top_k})")
+        print(f"  Basado en {len(df_res)} sorteos analizados")
+        print(f"{'='*60}")
+        print(f"\n{'Hora':<12} {'% Fallo':<12} {'Sorteos':<8}")
+        print(f"{'-'*32}")
+        for h in HORA_ORDER:
+            sub = df_res[df_res['hora'] == h]
+            if len(sub) == 0:
+                continue
+            pct = sub['gxh'].mean() * 100
+            print(f"{h:<12} {pct:<12.1f}% {len(sub):<8}")
+        print(f"\n  Global: {df_res['gxh'].mean()*100:.1f}%")
+        print(f"\n{'='*60}\n")
+        return df_res
+        df['Dia_Semana'] = pd.to_datetime(df['Fecha'].astype(str)).dt.day_name()
+        DIA_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        DIA_NOMBRE = {'Monday':'Lunes','Tuesday':'Martes','Wednesday':'Miercoles','Thursday':'Jueves','Friday':'Viernes','Saturday':'Sabado','Sunday':'Domingo'}
+        HORA_ORDER = ['08:00 AM','09:00 AM','10:00 AM','11:00 AM','12:00 PM','01:00 PM',
+                      '02:00 PM','03:00 PM','04:00 PM','05:00 PM','06:00 PM','07:00 PM']
+        matriz = {}
+        totales = {}
+        for dia_en in DIA_ORDER:
+            matriz[dia_en] = {h: 0 for h in HORA_ORDER}
+            totales[dia_en] = {h: 0 for h in HORA_ORDER}
         for i in range(1, len(df)):
             if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']:
                 continue
@@ -1203,139 +2178,40 @@ class Loteria:
             num_real = actual['Num_Int']
             hora_real = actual['Solo_hora']
             dia = df.iloc[i]['Dia_Semana']
-            markov_scores = {}
-            ultimo_num = prev_state['Num_Int']
-            if ultimo_num in trans_total and trans_total[ultimo_num] > 0:
-                for n in numeros_validos:
-                    p = trans_prob.get((ultimo_num, n), 0)
-                    if p > 0:
-                        markov_scores[n] = p
-            markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:25]
-            markov_hit = num_real in markov_top
-            hourly_scores = {}
-            if hora_real in freq_hora:
-                for n, p in freq_hora[hora_real].items():
-                    hourly_scores[n] = p
-            hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:25]
-            hourly_hit = num_real in hourly_top
-            combined_scores = {}
-            for n in markov_scores:
-                hp = hourly_scores.get(n, 0)
-                combined_scores[n] = markov_scores[n] + hp
-            combined_top = sorted(combined_scores, key=combined_scores.get, reverse=True)[:25]
-            combined_hit = num_real in combined_top
-            resultados.append({
-                'dia': dia, 'markov': markov_hit, 'hourly': hourly_hit, 'combined': combined_hit
-            })
-        df_res = pd.DataFrame(resultados)
-        if df_res.empty:
-            print("No se generaron resultados")
-            return
-        print(f"\n{'='*70}")
-        print(f"  ACIERTOS POR DIA DE LA SEMANA (Top-25)")
-        print(f"  Basado en {len(df_res)} sorteos analizados")
-        print(f"{'='*70}")
-        header = f"{'Dia':<12} {'Markov':<10} {'Hora':<10} {'Combinado':<12} {'Sorteos':<8}"
+            fallo = not self._eval_gxhora_hit(prev_state, actual, num_real, trans_prob, trans_total, trans_h, total_h, df, top_k=top_k)
+            matriz[dia][hora_real] += (1 if fallo else 0)
+            totales[dia][hora_real] += 1
+        print(f"\n{'='*80}")
+        print(f"  MATRIZ DE FALLOS GxHora POR DIA Y HORA (Top-{top_k})")
+        print(f"{'='*80}")
+        header = f"{'Dia/Hora':<14}" + "".join(f"{h[-8:]:<9}" for h in HORA_ORDER) + f"{'Total':<9}{'Prom':<9}"
         print(f"\n{header}")
-        print(f"{'-'*52}")
+        print("-" * len(header))
+        todas_tasas = []
         for dia_en in DIA_ORDER:
-            sub = df_res[df_res['dia'] == dia_en]
-            if len(sub) == 0:
-                continue
-            mk = sub['markov'].mean() * 100
-            hr = sub['hourly'].mean() * 100
-            cb = sub['combined'].mean() * 100
             nombre = DIA_NOMBRE.get(dia_en, dia_en)
-            print(f"{nombre:<12} {mk:<10.1f}% {hr:<10.1f}% {cb:<12.1f}% {len(sub):<8}")
-        print(f"\n  Resumen global:")
-        print(f"  Markov:    {df_res['markov'].mean()*100:.1f}%")
-        print(f"  Hora:      {df_res['hourly'].mean()*100:.1f}%")
-        print(f"  Combinado: {df_res['combined'].mean()*100:.1f}%")
-        print(f"\n  Mejor dia por modelo:")
-        for col, label in [('markov','Markov'), ('hourly','Hora'), ('combined','Combinado')]:
-            best = df_res.groupby('dia')[col].mean().idxmax()
-            best_val = df_res.groupby('dia')[col].mean().max() * 100
-            print(f"     {label}: {DIA_NOMBRE.get(best, best)} ({best_val:.1f}%)")
-        print(f"\n{'='*70}\n")
-        return df_res
-
-    def analizar_aciertos_por_hora(self, datos):
-        df = datos.copy()
-        if len(df) < 10:
-            print("Pocos datos")
-            return
-        trans_prob, trans_total = self._transiciones_markov(df)
-        freq_hora = self._frecuencias_hora(df, 'Solo_hora')
-        resultados = []
-        numeros_validos = list(range(38))
-        for i in range(1, len(df)):
-            if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']:
-                continue
-            prev_state = df.iloc[i-1]
-            actual = df.iloc[i]
-            num_real = actual['Num_Int']
-            hora_real = actual['Solo_hora']
-            markov_scores = {}
-            ultimo_num = prev_state['Num_Int']
-            if ultimo_num in trans_total and trans_total[ultimo_num] > 0:
-                for n in numeros_validos:
-                    p = trans_prob.get((ultimo_num, n), 0)
-                    if p > 0:
-                        markov_scores[n] = p
-            markov_top = sorted(markov_scores, key=markov_scores.get, reverse=True)[:25]
-            markov_hit = num_real in markov_top
-            hourly_scores = {}
-            if hora_real in freq_hora:
-                for n, p in freq_hora[hora_real].items():
-                    hourly_scores[n] = p
-            hourly_top = sorted(hourly_scores, key=hourly_scores.get, reverse=True)[:25]
-            hourly_hit = num_real in hourly_top
-            combined_scores = {}
-            for n in markov_scores:
-                hp = hourly_scores.get(n, 0)
-                combined_scores[n] = markov_scores[n] + hp
-            combined_top = sorted(combined_scores, key=combined_scores.get, reverse=True)[:25]
-            combined_hit = num_real in combined_top
-            resultados.append({
-                'hora': hora_real, 'markov': markov_hit, 'hourly': hourly_hit, 'combined': combined_hit
-            })
-        df_res = pd.DataFrame(resultados)
-        if df_res.empty:
-            print("No se generaron resultados")
-            return
-        HORA_ORDER = ['08:00 AM','09:00 AM','10:00 AM','11:00 AM','12:00 PM','01:00 PM',
-                      '02:00 PM','03:00 PM','04:00 PM','05:00 PM','06:00 PM','07:00 PM']
-
-        print(f"\n{'='*70}")
-        print(f"  ACIERTOS POR HORA (Top-25)")
-        print(f"  Basado en {len(df_res)} sorteos analizados")
-        print(f"{'='*70}")
-        header = f"{'Hora':<12} {'Markov':<10} {'Hora':<10} {'Combinado':<12} {'Sorteos':<8}"
-        print(f"\n{header}")
-        print(f"{'-'*52}")
-        for h in HORA_ORDER:
-            sub = df_res[df_res['hora'] == h]
-            if len(sub) == 0:
-                continue
-            mk = sub['markov'].mean() * 100
-            hr = sub['hourly'].mean() * 100
-            cb = sub['combined'].mean() * 100
-            print(f"{h:<12} {mk:<10.1f}% {hr:<10.1f}% {cb:<12.1f}% {len(sub):<8}")
-        print(f"\n  Resumen global:")
-        print(f"  Markov:    {df_res['markov'].mean()*100:.1f}%")
-        print(f"  Hora:      {df_res['hourly'].mean()*100:.1f}%")
-        print(f"  Combinado: {df_res['combined'].mean()*100:.1f}%")
-        print(f"\n  Mejores horas por modelo:")
-        for col, label in [('markov','Markov'), ('hourly','Hora'), ('combined','Combinado')]:
-            best = df_res.groupby('hora')[col].mean().idxmax()
-            best_val = df_res.groupby('hora')[col].mean().max() * 100
-            print(f"     {label}: {best} ({best_val:.1f}%)")
-        print(f"\n  Ranking Combinado (Top-3 mejores horas):")
-        top3 = df_res.groupby('hora')['combined'].mean().sort_values(ascending=False).head(3)
-        for h, v in top3.items():
-            print(f"     {h} -> {v*100:.1f}%")
-        print(f"\n{'='*70}\n")
-        return df_res
+            row = f"{nombre:<14}"
+            total_f = 0
+            total_c = 0
+            for h in HORA_ORDER:
+                c = totales[dia_en][h]
+                f = matriz[dia_en][h]
+                total_f += f
+                total_c += c
+                tasa = (f / c * 100) if c > 0 else 0
+                todas_tasas.append(tasa)
+                if tasa >= 15:
+                    row += f"{tasa:6.1f}%** "
+                else:
+                    row += f"{tasa:<9.1f}%"
+            prom = (total_f / total_c * 100) if total_c > 0 else 0
+            row += f"{total_f:<9}{prom:<9.1f}%"
+            print(row)
+        prom_gral = np.mean(todas_tasas) if todas_tasas else 0
+        print(f"\n  Promedio general de fallo: {prom_gral:.1f}%")
+        print(f"  ** = tasa >= 15% (zona de riesgo)")
+        print(f"\n{'='*80}\n")
+        return matriz
 
     def analizar_patrones_sorteo(self, datos):
         from collections import Counter, defaultdict
@@ -1559,41 +2435,6 @@ class Loteria:
             for i, (n2, p) in enumerate(top10.items(), 1):
                 a2 = self.num_int_a_animal.get(int(n2), "?")
                 print(f"     {i:2d}. {int(n2):2d} ({a2:<14}) ({p:.1f}%)")
-
-    def buscar_en_matriz_markov(self, datos, num_buscar):
-        print(f"\nBUSQUEDA EN MATRIZ MARKOV: {num_buscar}")
-        print("=" * 60)
-        if num_buscar not in range(38):
-            print(f"ERROR: '{num_buscar}' no es un numero valido (0-37)")
-            return
-        matriz = self.generar_matriz_probabilidad(datos.copy())
-        if num_buscar in matriz.index:
-            animal_n = self.num_int_a_animal.get(num_buscar, "?")
-            print(f"\nSi sale {num_buscar:2d} ({animal_n:<14}) -> Siguientes mas probables:")
-            top = matriz.loc[num_buscar].sort_values(ascending=False).head(25)
-            top = top[top > 0]
-            for i, (n2, p) in enumerate(top.items(), 1):
-                a2 = self.num_int_a_animal.get(int(n2), "?")
-                print(f"     {i:2d}. {int(n2):2d} ({a2:<14}) ({p:.1f}%)")
-            print(f"\nTotal de transiciones registradas desde {num_buscar}: {len(top)}")
-        else:
-            print(f"\nNo hay transiciones registradas desde {num_buscar}")
-        print(f"\nNumeros que mas frecuentemente preceden a {num_buscar}:")
-        predecesores = []
-        for n in matriz.index:
-            if num_buscar in matriz.columns:
-                prob = matriz.loc[n, num_buscar]
-                if prob > 0:
-                    predecesores.append((n, prob))
-        predecesores.sort(key=lambda x: x[1], reverse=True)
-        if predecesores:
-            for i, (n, p) in enumerate(predecesores[:25], 1):
-                a = self.num_int_a_animal.get(int(n), "?")
-                print(f"     {i:2d}. {int(n):2d} ({a:<14}) -> {num_buscar:2d} ({p:.1f}%)")
-        else:
-            print("   (ninguno)")
-        print(f"\nTotal de predecesores registrados: {len(predecesores)}")
-        print(f"\n{'=' * 60}")
 
     def mejor_prediccion_siguiente(self, datos):
         print("\nPrediccion Siguiente en Tiempo Real (TOP-5 Markov)")
@@ -2512,29 +3353,23 @@ class Loteria:
             ('18:00:00', '19:00:00'),
         ]
 
-    def _get_parejas_from_data(self, datos):
-        """Extrae TODOS los pares horarios unicos presentes en los datos."""
-        pairs = set()
-        for _, g in datos.groupby('Fecha'):
-            g = g.sort_values('Hora')
-            for i in range(1, len(g)):
-                pairs.add((g.iloc[i-1]['Hora'], g.iloc[i]['Hora']))
-        sorted_pairs = sorted(pairs, key=lambda x: (x[0], x[1]))
-        return sorted_pairs if sorted_pairs else self.get_parejas_horarias()
+    def _markov_cache_key(self, datos, incluir_trasnocho):
+        return (len(datos), datos['Num_Int'].sum(), datos['Fecha'].nunique(), incluir_trasnocho)
 
     def construir_matrices_markov(self, datos, incluir_trasnocho=False):
         """Construye y retorna (trans_count_global, total_global, trans_count_hora, total_hora).
-        Los pares horarios se derivan de los datos reales para soportar cualquier schedule.
-        Estados: Num_Int (0-37)."""
+        Descubre pares horarios sobre la marcha (un solo pase sobre datos).
+        Las matrices se cachean mientras los datos no cambien."""
+        key = self._markov_cache_key(datos, incluir_trasnocho)
+        cached = self._cache_markov.get(key)
+        if cached is not None:
+            return cached
+
         from collections import defaultdict
-        parejas = self._get_parejas_from_data(datos)
         trans_g = defaultdict(lambda: defaultdict(int))
         total_g = defaultdict(int)
         trans_h = {}
         total_h = {}
-        for p in parejas:
-            trans_h[p] = defaultdict(lambda: defaultdict(int))
-            total_h[p] = defaultdict(int)
 
         for fecha, df in datos.groupby('Fecha'):
             df = df.sort_values('Hora')
@@ -2543,11 +3378,19 @@ class Loteria:
                 hp, hn = df.iloc[i-1]['Hora'], df.iloc[i]['Hora']
                 trans_g[a][b] += 1
                 total_g[a] += 1
-                if (hp, hn) in trans_h:
-                    trans_h[(hp,hn)][a][b] += 1
-                    total_h[(hp,hn)][a] += 1
+                th = trans_h.get((hp, hn))
+                if th is None:
+                    trans_h[(hp, hn)] = defaultdict(lambda: defaultdict(int))
+                    total_h[(hp, hn)] = defaultdict(int)
+                    th = trans_h[(hp, hn)]
+                th[a][b] += 1
+                total_h[(hp, hn)][a] += 1
 
         if incluir_trasnocho:
+            trasnocho_key = ('19:00:00', '08:00:00')
+            if trasnocho_key not in trans_h:
+                trans_h[trasnocho_key] = defaultdict(lambda: defaultdict(int))
+                total_h[trasnocho_key] = defaultdict(int)
             fechas = sorted(datos['Fecha'].unique())
             for f_hoy, f_man in zip(fechas, fechas[1:]):
                 hoy = datos[datos['Fecha'] == f_hoy].sort_values('Hora')
@@ -2562,6 +3405,7 @@ class Loteria:
                     trans_h[trasnocho_key][a][b] += 1
                     total_h[trasnocho_key][a] += 1
 
+        self._cache_markov[key] = (trans_g, total_g, trans_h, total_h)
         return trans_g, total_g, trans_h, total_h
 
     def preparar_datos_markov(self, datos):
@@ -2648,14 +3492,39 @@ class Loteria:
         items.sort(key=lambda x: -x[1])
         return items[:top_k]
 
-    def get_matriz_segundo_orden_por_animal(self, datos, animal1, animal2, top_k=25):
-        """Compat: wrappea get_matriz_segundo_orden con nombres de animal."""
-        n1 = self.animal_a_num_int.get(animal1.upper() if isinstance(animal1, str) else animal1, -1)
-        n2 = self.animal_a_num_int.get(animal2.upper() if isinstance(animal2, str) else animal2, -1)
-        if n1 < 0 or n2 < 0:
-            return []
-        items = self.get_matriz_segundo_orden(datos, n1, n2, top_k)
-        return [(self.num_int_a_animal.get(c, str(c)), p, m) for c, p, m in items]
+    def get_matriz_coocurrencia(self, datos, top_k=25):
+        """
+        Retorna dict[numero_int] = [(siguiente_num, prob %, muestras), ...] top_k
+        basado en co-ocurrencia: numeros que suelen salir en el mismo dia.
+        """
+        from collections import defaultdict
+        d = datos.copy()
+        if 'Fecha' not in d.columns:
+            return {}
+        coex = defaultdict(lambda: defaultdict(int))
+        total = defaultdict(int)
+        for _, grupo in d.groupby('Fecha'):
+            nums = set(grupo['Num_Int'].unique())
+            for n in nums:
+                total[n] += 1
+                for n2 in nums:
+                    if n2 != n:
+                        coex[n][n2] += 1
+        resultado = {}
+        for n in range(38):
+            if n not in total or total[n] == 0:
+                resultado[n] = []
+                continue
+            t = total[n]
+            scores = [(n2, cnt / t * 100, cnt) for n2, cnt in coex[n].items()]
+            scores.sort(key=lambda x: -x[1])
+            resultado[n] = scores[:top_k]
+        return resultado
+
+    def get_matriz_coocurrencia_por_animal(self, datos, top_k=25):
+        """Wrapper de get_matriz_coocurrencia con claves de animal."""
+        m = self.get_matriz_coocurrencia(datos, top_k=top_k)
+        return {self.num_int_a_animal.get(k, str(k)): v for k, v in m.items()}
 
     def get_prediccion_combinada(self, datos, num_origen, hora_origen, hora_destino, top_k=10, incluir_trasnocho=False):
         """
@@ -2665,17 +3534,29 @@ class Loteria:
           3. Frecuencia historica por hora (Num_Int)
           4. Co-ocurrencia en el mismo dia (Num_Int)
         Retorna [(siguiente_num, score_combinado, muestras), ...] top_k.
+        Construye las matrices de Markov una sola vez.
         """
         from collections import defaultdict
         d = self.preparar_datos_markov(datos)
+        trans_g, total_g, trans_h, total_h = self.construir_matrices_markov(d, incluir_trasnocho=incluir_trasnocho)
 
         # --- 1. Markov global ---
-        mg = self.get_matriz_global(d, top_k=38, incluir_trasnocho=incluir_trasnocho)
-        g_scores = {n: p for n, p, _ in mg.get(num_origen, [])}
+        g_items = []
+        if num_origen in total_g and total_g[num_origen]:
+            tot = total_g[num_origen]
+            g_items = [(a2, cnt / tot * 100, cnt) for a2, cnt in trans_g[num_origen].items()]
+            g_items.sort(key=lambda x: -x[1])
+        g_scores = {n: p for n, p, _ in g_items}
 
         # --- 2. Markov x hora ---
-        mh = self.get_matriz_hora(d, hora_origen, hora_destino, top_k=38, incluir_trasnocho=incluir_trasnocho)
-        h_scores = {n: p for n, p, _ in mh.get(num_origen, [])}
+        pareja = (hora_origen, hora_destino)
+        h_items = []
+        th = total_h.get(pareja, {})
+        if num_origen in th and th[num_origen]:
+            tot = th[num_origen]
+            h_items = [(a2, cnt / tot * 100, cnt) for a2, cnt in trans_h[pareja][num_origen].items()]
+            h_items.sort(key=lambda x: -x[1])
+        h_scores = {n: p for n, p, _ in h_items}
 
         # --- 3. Frecuencia historica por hora ---
         hora_12 = pd.to_datetime(hora_origen, format='%H:%M:%S').strftime('%I:%M %p')
@@ -2697,16 +3578,14 @@ class Loteria:
         # --- Combinacion ponderada ---
         todos = set(g_scores.keys()) | set(h_scores.keys()) | set(freq_hora.keys()) | set(cooc_scores.keys())
 
-        muestras_h = sum(c for _, _, c in mh.get(num_origen, []))
-        w_h = min(0.35, max(0.05, muestras_h / 100 * 0.35))
+        muestras_h = sum(c for _, _, c in h_items)
+        w_h = min(0.9, max(0.1, muestras_h / 50))
         w_g = 0.40 - w_h * 0.5
         w_f = 0.20
         w_c = 0.40 - w_h * 0.5
 
         combinado = {}
         for n2 in todos:
-            if n2 == num_origen:
-                continue
             pg = g_scores.get(n2, 0)
             ph = h_scores.get(n2, 0)
             pf = freq_hora.get(n2, 0)
@@ -2904,14 +3783,12 @@ class Loteria:
                         gxh_scores[n] = pg + ph
                 gxh_top = set(sorted(gxh_scores, key=gxh_scores.get, reverse=True)[:top_k])
 
-                w_h = min(0.35, max(0.05, total_h.get(par, {}).get(ant, 0) / 100 * 0.35))
+                w_h = min(0.9, max(0.1, total_h.get(par, {}).get(ant, 0) / 50))
                 w_g = 0.40 - w_h * 0.5
                 w_f = 0.20
                 w_c = 0.40 - w_h * 0.5
                 full_scores = {}
                 for n in range(38):
-                    if n == ant:
-                        continue
                     pg = g_dict.get(n, 0)
                     ph = h_dict.get(n, 0)
                     pf = f_series.get(n, 0)
@@ -3141,11 +4018,11 @@ class Loteria:
                     existing['Fecha'] = pd.to_datetime(existing['Fecha']).dt.strftime("%Y-%m-%d")
                     existing_dates = set(existing['Fecha'].unique())
                     all_dates = set()
-                    current = datetime.datetime.strptime(inicio, "%Y-%m-%d")
-                    end_dt = datetime.datetime.strptime(fin, "%Y-%m-%d")
+                    current = datetime.strptime(inicio, "%Y-%m-%d")
+                    end_dt = datetime.strptime(fin, "%Y-%m-%d")
                     while current <= end_dt:
                         all_dates.add(current.strftime("%Y-%m-%d"))
-                        current += datetime.timedelta(days=1)
+                        current += timedelta(days=1)
                     missing = sorted(all_dates - existing_dates)
                     print(f"Fechas faltantes: {len(missing)} de {len(all_dates)}")
                     if not missing:
