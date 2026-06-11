@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from loteria_base import Loteria
-from utils import ANIMALES_38, GRUPOS_ANIMALES
+from utils import ANIMALES_38, GRUPOS_ANIMALES, ANIMAL_A_NUM_INT
 
 def _config():
     return {
@@ -36,7 +36,8 @@ def _synthetic_data(n_dias=5, horas=None):
             ts = pd.to_datetime(f"{fecha} {h}")
             rows.append({
                 'Fecha': fecha, 'Hora': h, 'Animal': animal,
-                'Numero': numero, 'Timestamp': ts, 'Solo_hora': solo_hora
+                'Numero': numero, 'Num_Int': ANIMAL_A_NUM_INT.get(animal, numero),
+                'Timestamp': ts, 'Solo_hora': solo_hora
             })
     return pd.DataFrame(rows)
 
@@ -93,7 +94,7 @@ class TestLoteriaBase:
         for i in range(1, len(df_feat)):
             animal = df_feat.iloc[i]['Animal']
             hora = df_feat.iloc[i]['Solo_hora']
-            past = df_feat.iloc[:i+1]
+            past = df_feat.iloc[:i]
             same_hour = past[past['Solo_hora'] == hora]
             if len(same_hour) == 0:
                 continue
@@ -107,22 +108,28 @@ class TestLoteriaBase:
         df_feat = self.loteria.agregar_caracteristicas_avanzadas(df.copy())
         prob_trans = df_feat['Prob_Trans_Markov'].values
         for i in range(len(df_feat)):
-            assert 0 <= prob_trans[i] <= 100, f"i={i}: out of range"
+            assert 0 <= prob_trans[i] <= 100, f"i={i}: out of range (val={prob_trans[i]})"
         assert prob_trans[0] == 0.0
-        last = len(df_feat) - 1
-        if last > 0 and df_feat.iloc[last-1]['Fecha'] == df_feat.iloc[last]['Fecha']:
-            trans_prob_all, _ = self.loteria._transiciones_markov(df)
-            prev_last = df_feat.iloc[last-1]['Animal']
-            cur_last = df_feat.iloc[last]['Animal']
-            expected = trans_prob_all.get((prev_last, cur_last), 0)
-            assert abs(prob_trans[last] - expected) < 0.01
+        # Verify that prob_trans for any row i matches the manually computed
+        # transition probability from the (sorted) past data up to i-1
+        for i in range(1, len(df_feat)):
+            if df_feat.iloc[i-1]['Fecha'] != df_feat.iloc[i]['Fecha']:
+                continue
+            # Prob_Trans_Markov includes the current transition (increments before appending)
+            trans_prob_all, _ = self.loteria._transiciones_markov(df.iloc[:i+1])
+            prev = int(df_feat.iloc[i-1]['Num_Int'])
+            cur = int(df_feat.iloc[i]['Num_Int'])
+            expected = trans_prob_all.get((prev, cur), 0)
+            assert abs(prob_trans[i] - expected) < 0.01, (
+                f"i={i}: {prob_trans[i]} != {expected} for ({prev}->{cur})"
+            )
 
     def test_frecuencia_10(self):
         df_feat = self.df_feat.sort_values(['Fecha', 'Hora']).reset_index(drop=True)
         for i in range(len(df_feat)):
             animal = df_feat.iloc[i]['Animal']
-            start = max(0, i - 9)
-            expected = int((df_feat.iloc[start:i+1]['Animal'] == animal).sum())
+            start = max(0, i - 10)
+            expected = int((df_feat.iloc[start:i]['Animal'] == animal).sum())
             assert df_feat.iloc[i]['Frecuencia_10'] == expected, f"i={i}: {df_feat.iloc[i]['Frecuencia_10']} != {expected}"
 
     def test_sorteos_desde_aparicion(self):

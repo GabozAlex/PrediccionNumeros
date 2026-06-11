@@ -269,6 +269,25 @@ class LottoPredictorUI:
     def _get_datos(self):
         return self.datos.get(self.current_lottery)
 
+    def _resolver_animal_ui(self, entrada, analizador):
+        if not entrada or not entrada.strip():
+            return None, "Ingresa un animal o numero"
+        entrada = entrada.strip()
+        # Try numeric first
+        if entrada.isdigit():
+            n = int(entrada)
+            if 0 <= n <= 37:
+                animal = analizador.num_int_a_animal.get(n)
+                if animal:
+                    return animal, None
+                return None, f"Numero {n} no tiene animal asociado"
+            return None, f"Numero fuera de rango (0-37): {n}"
+        # Try animal name
+        animal = entrada.upper()
+        if animal in analizador.animales_carac:
+            return animal, None
+        return None, f"'{entrada}' no es numero (0-37) ni animal valido"
+
     # ================ TAB: DASHBOARD ================
 
     def _tab_crear_dashboard(self):
@@ -721,7 +740,7 @@ class LottoPredictorUI:
         ventana.geometry("700x600")
         frame_top = ttk.Frame(ventana)
         frame_top.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Label(frame_top, text="Animal inicial:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        ttk.Label(frame_top, text="Animal o numero (0-37):", font=("", 10)).pack(side=tk.LEFT, padx=2)
         entry_animal = ttk.Entry(frame_top, width=15, font=("", 10))
         entry_animal.pack(side=tk.LEFT, padx=2)
         entry_animal.focus_set()
@@ -737,9 +756,13 @@ class LottoPredictorUI:
         txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
         txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         def simular():
-            animal = entry_animal.get().strip().upper()
+            entrada = entry_animal.get().strip()
+            animal, err = self._resolver_animal_ui(entrada, analizador)
+            if err:
+                messagebox.showwarning("Error", err)
+                return
             hora_str = combo.get()
-            if not animal or not hora_str:
+            if not hora_str:
                 return
             txt.delete("1.0", tk.END)
             txt.insert(tk.END, f"Simulando cadena desde {animal} a las {hora_str}...\n")
@@ -936,8 +959,8 @@ class LottoPredictorUI:
         ventana.geometry("600x520")
         frame_top = ttk.Frame(ventana)
         frame_top.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Label(frame_top, text="Numero (0-37):", font=("", 10)).pack(side=tk.LEFT, padx=2)
-        entry = ttk.Entry(frame_top, width=8, font=("", 10))
+        ttk.Label(frame_top, text="Animal o numero (0-37):", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry = ttk.Entry(frame_top, width=18, font=("", 10))
         entry.pack(side=tk.LEFT, padx=2)
         entry.focus_set()
         trasnocho_var = tk.BooleanVar(value=False)
@@ -945,14 +968,11 @@ class LottoPredictorUI:
         txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
         txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         def buscar():
-            n_str = entry.get().strip()
-            if not n_str.isdigit() or not (0 <= int(n_str) <= 37):
-                messagebox.showwarning("Error", "Ingresa un numero valido (0-37)")
+            entrada = entry.get().strip()
+            animal, err = self._resolver_animal_ui(entrada, analizador)
+            if err:
+                messagebox.showwarning("Error", err)
                 return
-            n = int(n_str)
-            animal = analizador.num_int_a_animal.get(n, None)
-            if animal is None:
-                messagebox.showwarning("Error", f"Numero {n} no valido")
                 return
             txt.delete("1.0", tk.END)
             txt.insert(tk.END, f"Buscando siguientes de {animal}...\n")
@@ -1035,7 +1055,7 @@ class LottoPredictorUI:
         ventana.geometry("550x520")
         frame_top = ttk.Frame(ventana)
         frame_top.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Label(frame_top, text="Animal:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        ttk.Label(frame_top, text="Animal o numero:", font=("", 10)).pack(side=tk.LEFT, padx=2)
         entry_animal = ttk.Entry(frame_top, width=15, font=("", 10))
         entry_animal.pack(side=tk.LEFT, padx=2)
         entry_animal.focus_set()
@@ -1051,9 +1071,13 @@ class LottoPredictorUI:
         txt = scrolledtext.ScrolledText(ventana, wrap=tk.WORD, font=("Courier", 9))
         txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         def buscar():
-            animal = entry_animal.get().strip().upper()
+            entrada = entry_animal.get().strip()
+            animal, err = self._resolver_animal_ui(entrada, analizador)
+            if err:
+                messagebox.showwarning("Error", err)
+                return
             hora_str = combo.get()
-            if not animal or not hora_str:
+            if not hora_str:
                 return
             txt.delete("1.0", tk.END)
             txt.insert(tk.END, f"Calculando...\n")
@@ -1104,7 +1128,7 @@ class LottoPredictorUI:
         ventana.geometry("650x540")
         frame_top = ttk.Frame(ventana)
         frame_top.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Label(frame_top, text="Animal:", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        ttk.Label(frame_top, text="Animal o numero:", font=("", 10)).pack(side=tk.LEFT, padx=2)
         entry_animal = ttk.Entry(frame_top, width=15, font=("", 10))
         entry_animal.pack(side=tk.LEFT, padx=2)
         entry_animal.focus_set()
@@ -1121,7 +1145,11 @@ class LottoPredictorUI:
         txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         ttk.Label(frame_top, text="(dejar vacio = ultimo sorteo)", font=("", 8)).pack(side=tk.LEFT, padx=5)
         def buscar():
-            animal = entry_animal.get().strip().upper()
+            entrada = entry_animal.get().strip()
+            animal, err = self._resolver_animal_ui(entrada, analizador)
+            if err:
+                messagebox.showwarning("Error", err)
+                return
             hora_str = combo.get().strip()
             txt.delete("1.0", tk.END)
             txt.insert(tk.END, "Calculando...\n")
@@ -1205,8 +1233,8 @@ class LottoPredictorUI:
         ventana.geometry("600x550")
         frame_top = ttk.Frame(ventana)
         frame_top.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Label(frame_top, text="Numero (0-37):", font=("", 10)).pack(side=tk.LEFT, padx=2)
-        entry = ttk.Entry(frame_top, width=8, font=("", 10))
+        ttk.Label(frame_top, text="Animal o numero (0-37):", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry = ttk.Entry(frame_top, width=18, font=("", 10))
         entry.pack(side=tk.LEFT, padx=2)
         entry.focus_set()
         ttk.Label(frame_top, text="Hora:", font=("", 10)).pack(side=tk.LEFT, padx=2)
@@ -1217,16 +1245,14 @@ class LottoPredictorUI:
         txt.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         txt.insert(tk.END, "Selecciona numero y hora, luego clic en Buscar\n")
         def buscar():
-            n_str = entry.get().strip()
+            entrada = entry.get().strip()
+            animal, err = self._resolver_animal_ui(entrada, analizador)
+            if err:
+                messagebox.showwarning("Error", err)
+                return
+            n = analizador.animal_a_num_int.get(animal)
             seleccion = combo.get()
-            if not n_str.isdigit() or not (0 <= int(n_str) <= 37) or not seleccion:
-                messagebox.showwarning("Error", "Ingresa un numero valido (0-37) y selecciona hora")
-                return
-            n = int(n_str)
-            animal = analizador.num_int_a_animal.get(n, None)
-            if animal is None:
-                messagebox.showwarning("Error", f"Numero {n} no valido")
-                return
+            if not seleccion:
             partes = seleccion.split(" -> ")
             h_o, h_d = partes[0].strip(), partes[1].strip()
             txt.delete("1.0", tk.END)
@@ -1262,8 +1288,8 @@ class LottoPredictorUI:
         ventana.geometry("600x520")
         frame_top = ttk.Frame(ventana)
         frame_top.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Label(frame_top, text="Numero (0-37):", font=("", 10)).pack(side=tk.LEFT, padx=2)
-        entry_animal = ttk.Entry(frame_top, width=8, font=("", 10))
+        ttk.Label(frame_top, text="Animal o numero (0-37):", font=("", 10)).pack(side=tk.LEFT, padx=2)
+        entry_animal = ttk.Entry(frame_top, width=18, font=("", 10))
         entry_animal.pack(side=tk.LEFT, padx=2)
         entry_animal.focus_set()
         trasnocho_var = tk.BooleanVar(value=False)
@@ -1278,16 +1304,13 @@ class LottoPredictorUI:
         frame_bot = ttk.Frame(ventana)
         frame_bot.pack(fill=tk.X, padx=5, pady=5)
         def buscar():
-            n_str = entry_animal.get().strip()
+            entrada = entry_animal.get().strip()
+            animal, err = self._resolver_animal_ui(entrada, analizador)
+            if err:
+                messagebox.showwarning("Error", err)
+                return
             seleccion = combo.get()
-            if not n_str.isdigit() or not (0 <= int(n_str) <= 37) or not seleccion:
-                messagebox.showwarning("Error", "Ingresa un numero valido (0-37) y selecciona hora")
-                return
-            n = int(n_str)
-            animal = analizador.num_int_a_animal.get(n, None)
-            if animal is None:
-                messagebox.showwarning("Error", f"Numero {n} no valido")
-                return
+            if not seleccion:
             partes = seleccion.split(" -> ")
             h_o, h_d = partes[0].strip(), partes[1].strip()
             incluir_trasnocho = trasnocho_var.get()
@@ -1336,8 +1359,8 @@ class LottoPredictorUI:
         ventana.geometry("380x270")
         ventana.transient(self.root)
         ventana.grab_set()
-        ttk.Label(ventana, text="Numero que acaba de salir (0-37):", font=("", 10)).pack(pady=(15, 3))
-        entry_animal = ttk.Entry(ventana, width=8, font=("", 10))
+        ttk.Label(ventana, text="Animal o numero que acaba de salir (0-37):", font=("", 10)).pack(pady=(15, 3))
+        entry_animal = ttk.Entry(ventana, width=18, font=("", 10))
         entry_animal.pack(pady=3)
         entry_animal.focus_set()
         ttk.Label(ventana, text="Hora del sorteo (HH:MM AM/PM):", font=("", 10)).pack(pady=(12, 5))
@@ -1348,12 +1371,13 @@ class LottoPredictorUI:
         combo_hora.pack(pady=3)
         combo_hora.set(horas_opciones[-1])
         def ejecutar():
-            n_str = entry_animal.get().strip()
-            hora = combo_hora.get().strip()
-            if not n_str.isdigit() or not (0 <= int(n_str) <= 37):
-                messagebox.showwarning("Error", "Debes ingresar un numero valido (0-37)")
+            entrada = entry_animal.get().strip()
+            animal, err = self._resolver_animal_ui(entrada, analizador)
+            if err:
+                messagebox.showwarning("Error", err)
                 return
-            n = int(n_str)
+            n = analizador.animal_a_num_int.get(animal)
+            hora = combo_hora.get().strip()
             if not hora:
                 messagebox.showwarning("Error", "Debes seleccionar una hora")
                 return
@@ -1440,7 +1464,7 @@ class LottoPredictorUI:
         frame_manual.pack(fill=tk.X, padx=15, pady=4)
         rb_manual = ttk.Radiobutton(frame_manual, text="", variable=modo, value="manual")
         rb_manual.pack(anchor=tk.W)
-        ttk.Label(frame_manual, text="Animal que acaba de salir:", font=("", 9)).pack(anchor=tk.W, padx=18, pady=(5, 2))
+        ttk.Label(frame_manual, text="Animal o numero que acaba de salir:", font=("", 9)).pack(anchor=tk.W, padx=18, pady=(5, 2))
         entry_animal = ttk.Entry(frame_manual, width=25, font=("", 10))
         entry_animal.pack(anchor=tk.W, padx=18, pady=2)
         ttk.Label(frame_manual, text="Hora del sorteo (HH:MM AM/PM):", font=("", 9)).pack(anchor=tk.W, padx=18, pady=(5, 2))
@@ -1463,10 +1487,9 @@ class LottoPredictorUI:
             hora_24h = None
             solo_hora = None
             if modo.get() == "manual":
-                animal = entry_animal.get().strip().upper()
-                if not animal or animal not in analizador.animales_carac:
-                    animales_ok = ", ".join(sorted(analizador.animales_carac.keys()))
-                    messagebox.showwarning("Error", f"Animal invalido. Validos: {animales_ok}")
+                animal, err = self._resolver_animal_ui(entry_animal.get().strip(), analizador)
+                if err:
+                    messagebox.showwarning("Error", err)
                     return
                 hora_str = combo_hora.get().strip()
                 if not hora_str:
@@ -1536,7 +1559,7 @@ class LottoPredictorUI:
         ventana.geometry("380x200")
         ventana.transient(self.root)
         ventana.grab_set()
-        ttk.Label(ventana, text="Animal que acaba de salir:", font=("", 10)).pack(anchor=tk.W, padx=15, pady=(12, 2))
+        ttk.Label(ventana, text="Animal o numero que acaba de salir:", font=("", 10)).pack(anchor=tk.W, padx=15, pady=(12, 2))
         entry_animal = ttk.Entry(ventana, width=25, font=("", 10))
         entry_animal.pack(anchor=tk.W, padx=15, pady=2)
         entry_animal.focus_set()
@@ -1548,9 +1571,9 @@ class LottoPredictorUI:
         combo_hora.pack(anchor=tk.W, padx=15, pady=2)
         combo_hora.set(horas[-1])
         def ejecutar():
-            animal = entry_animal.get().strip().upper()
-            if not animal or animal not in analizador.animales_carac:
-                messagebox.showwarning("Error", f"Animal invalido")
+            animal, err = self._resolver_animal_ui(entry_animal.get().strip(), analizador)
+            if err:
+                messagebox.showwarning("Error", err)
                 return
             hora_str = combo_hora.get()
             dt_h = pd.to_datetime(hora_str, format='%I:%M %p')
@@ -1603,7 +1626,7 @@ class LottoPredictorUI:
         ventana.geometry("380x200")
         ventana.transient(self.root)
         ventana.grab_set()
-        ttk.Label(ventana, text="Animal que acaba de salir:", font=("", 10)).pack(anchor=tk.W, padx=15, pady=(12, 2))
+        ttk.Label(ventana, text="Animal o numero que acaba de salir:", font=("", 10)).pack(anchor=tk.W, padx=15, pady=(12, 2))
         entry_animal = ttk.Entry(ventana, width=25, font=("", 10))
         entry_animal.pack(anchor=tk.W, padx=15, pady=2)
         entry_animal.focus_set()
@@ -1615,9 +1638,9 @@ class LottoPredictorUI:
         combo_hora.pack(anchor=tk.W, padx=15, pady=2)
         combo_hora.set(horas[-1])
         def ejecutar():
-            animal = entry_animal.get().strip().upper()
-            if not animal or animal not in analizador.animales_carac:
-                messagebox.showwarning("Error", f"Animal invalido")
+            animal, err = self._resolver_animal_ui(entry_animal.get().strip(), analizador)
+            if err:
+                messagebox.showwarning("Error", err)
                 return
             hora_str = combo_hora.get()
             dt_h = pd.to_datetime(hora_str, format='%I:%M %p')

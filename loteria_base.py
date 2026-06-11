@@ -67,6 +67,26 @@ class Loteria:
             rankings[n] = (i, combined[n])
         return rankings, combined
 
+    def _resolver_animal(self, entrada):
+        if isinstance(entrada, str):
+            entrada = entrada.strip()
+        # Try numeric
+        try:
+            n = int(entrada)
+            if 0 <= n <= self.config['max_numero']:
+                animal = self.num_int_a_animal.get(n)
+                if animal:
+                    return animal
+        except (ValueError, TypeError):
+            pass
+        # Try animal name
+        animal = str(entrada).upper().strip()
+        if animal in self.animales_carac:
+            return animal
+        raise ValueError(
+            f"'{entrada}' no es numero valido (0-{self.config['max_numero']}) ni nombre de animal"
+        )
+
     def verificar_diccionario_animales(self):
         print("\nVERIFICANDO LISTA DE ANIMALES...")
         total_animales = len(self.animales_carac)
@@ -81,11 +101,7 @@ class Loteria:
         return True
 
     def validar_animal(self, animal):
-        animal = animal.strip().upper()
-        if animal not in self.animales_carac:
-            animales_validos = ", ".join(sorted(self.animales_carac.keys()))
-            raise ValueError(f"Animal '{animal}' no valido. Animales validos: {animales_validos}")
-        return animal
+        return self._resolver_animal(animal)
 
     def validar_numero(self, numero):
         if not (0 <= numero <= self.config['max_numero']):
@@ -228,8 +244,8 @@ class Loteria:
                     trans_cnt[prev][cur_animal] += 1
                     trans_total_cnt[prev] += 1
                 prob_trans_vals.append(
-                    ((trans_cnt[prev][cur_animal] - 1) / (trans_total_cnt[prev] - 1) * 100)
-                    if (trans_total_cnt[prev] - 1) > 0 else 0.0
+                    (trans_cnt[prev][cur_animal] / trans_total_cnt[prev] * 100)
+                    if trans_total_cnt[prev] > 0 else 0.0
                 )
             else:
                 prob_trans_vals.append(0.0)
@@ -474,9 +490,10 @@ class Loteria:
         if min_samples < 3:
             self.logger.warning(f"Clase con solo {min_samples} muestras - puede causar errores en XGBoost")
         modelo_base = XGBClassifier(
+            use_label_encoder=False,
             eval_metric='mlogloss',
             random_state=42,
-            n_jobs=1
+            n_jobs=-1
         )
         pipeline_base = self.crear_pipeline_ml(modelo_base, numeric_features, categorical_features)
         tscv = TimeSeriesSplit(n_splits=3)
@@ -976,9 +993,11 @@ class Loteria:
         return None
 
     def prediccion_modelo_simple(self, datos, animal, hora_str, modelo, le_y, nombre_modelo):
-        """Retorna top-25 [(num_int, animal_name, prob_pct)] dados animal, hora y modelo."""
+        """Retorna top-25 [(num_int, animal_name, prob_pct)] dados animal, hora y modelo.
+        animal: nombre de animal o numero entero 0-37."""
         d = datos.copy()
-        num = self.animal_a_num_int.get(animal)
+        animal_resuelto = self._resolver_animal(animal)
+        num = self.animal_a_num_int.get(animal_resuelto)
         if num is None:
             return []
         d.iloc[-1, d.columns.get_loc('Num_Int')] = num
@@ -1374,11 +1393,12 @@ class Loteria:
         ultima_fecha = fechas.iloc[-1]
 
         if animal is not None:
-            ultimo_num = self.animal_a_num_int.get(animal.upper())
+            animal_resuelto = self._resolver_animal(animal)
+            ultimo_num = self.animal_a_num_int.get(animal_resuelto)
             if ultimo_num is None:
                 print(f"\n  Animal '{animal}' no valido")
                 return
-            num_animal = animal.upper()
+            num_animal = animal_resuelto
             if hora is None:
                 hora_str = "desconocida"
                 dia_hoy = ultima_fecha.strftime('%A')
@@ -2443,11 +2463,11 @@ class Loteria:
     def mejor_prediccion_siguiente(self, datos):
         print("\nPrediccion Siguiente en Tiempo Real (TOP-5 Markov)")
         try:
-            num_actual = int(input("Ingresa el Num_Int que acaba de salir (0-37, ej: 27): ").strip())
-            if num_actual not in range(38):
-                raise ValueError
-        except ValueError:
-            print("Error: Numero invalido. Debe ser 0-37.")
+            entrada = input("Ingresa el animal o numero (0-37, ej: 27 o PERRO): ").strip()
+            animal = self._resolver_animal(entrada)
+            num_actual = self.animal_a_num_int.get(animal)
+        except ValueError as e:
+            print(f"Error: {e}")
             return
         matriz_probabilidad = self.generar_matriz_probabilidad(datos.copy())
         if num_actual not in matriz_probabilidad.index:
