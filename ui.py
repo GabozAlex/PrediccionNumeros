@@ -1253,6 +1253,8 @@ class LottoPredictorUI:
             n = analizador.animal_a_num_int.get(animal)
             seleccion = combo.get()
             if not seleccion:
+                messagebox.showwarning("Error", "Selecciona una hora")
+                return
             partes = seleccion.split(" -> ")
             h_o, h_d = partes[0].strip(), partes[1].strip()
             txt.delete("1.0", tk.END)
@@ -1311,6 +1313,8 @@ class LottoPredictorUI:
                 return
             seleccion = combo.get()
             if not seleccion:
+                messagebox.showwarning("Error", "Selecciona una hora")
+                return
             partes = seleccion.split(" -> ")
             h_o, h_d = partes[0].strip(), partes[1].strip()
             incluir_trasnocho = trasnocho_var.get()
