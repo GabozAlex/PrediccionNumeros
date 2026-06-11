@@ -3,7 +3,8 @@ import time
 import datetime
 import logging
 from logging.handlers import RotatingFileHandler
-import requests
+from utils import get_requests_session, HORA_MAP_12_TO_24
+import requests as _requests  # kept alias for type checks
 from bs4 import BeautifulSoup
 import pandas as pd
 import os
@@ -52,10 +53,15 @@ def setup_logging():
 
 logger = setup_logging()
 
-def scrape_date(date_str):
+def scrape_date(date_str, session=None, timeout=30):
     records = []
     try:
-        resp = requests.post(URL_BASE, data={"fecha": date_str}, headers=HEADERS, timeout=30)
+        session = session or get_requests_session()
+        try:
+            session.headers.update(HEADERS)
+        except Exception:
+            pass
+        resp = session.post(URL_BASE, data={"fecha": date_str}, timeout=timeout)
         resp.raise_for_status()
     except requests.RequestException as e:
         logger.error(f"Error fetching {date_str}: {e}")
@@ -86,7 +92,8 @@ def scrape_date(date_str):
             logger.warning(f"Could not parse number '{num_str}' on {date_str}")
             continue
 
-        hour_24 = HOUR_MAP_12_TO_24.get(time_text)
+        # Use shared mapping from utils when available
+        hour_24 = HORA_MAP_12_TO_24.get(time_text) if 'HORA_MAP_12_TO_24' in globals() else HOUR_MAP_12_TO_24.get(time_text)
         if not hour_24:
             logger.warning(f"Unknown time format '{time_text}' on {date_str}")
             continue

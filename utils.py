@@ -8,6 +8,29 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
+
+def get_requests_session(retries: int = 3, backoff_factor: float = 0.3, status_forcelist=(500, 502, 504)):
+    """Create a requests Session with retry/backoff configured.
+
+    This centralizes HTTP robustness for all scrapers.
+    """
+    import requests
+    from requests.adapters import HTTPAdapter
+    try:
+        # urllib3 Retry is available via requests.packages.urllib3 or urllib3
+        from urllib3.util.retry import Retry
+    except Exception:
+        from requests.packages.urllib3.util.retry import Retry
+
+    session = requests.Session()
+    retry = Retry(total=retries, read=retries, connect=retries, backoff_factor=backoff_factor,
+                  status_forcelist=status_forcelist, raise_on_status=False)
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    session.headers.update(HEADERS)
+    return session
+
 ANIMALES_38 = [
     "DELFIN", "BALLENA", "CARNERO", "TORO", "CIEMPIES", "ALACRAN",
     "LEON", "RANA", "PERICO", "RATON", "AGUILA", "TIGRE", "GATO",
@@ -50,6 +73,22 @@ HORA_MAP_12_TO_24 = {
     "06:00 PM": "18:00:00",
     "07:00 PM": "19:00:00",
 }
+
+# Also include common :30 times used by some scrapers (e.g. RD Int)
+HORA_MAP_12_TO_24.update({
+    "08:30 AM": "08:30:00",
+    "09:30 AM": "09:30:00",
+    "10:30 AM": "10:30:00",
+    "11:30 AM": "11:30:00",
+    "12:30 PM": "12:30:00",
+    "01:30 PM": "13:30:00",
+    "02:30 PM": "14:30:00",
+    "03:30 PM": "15:30:00",
+    "04:30 PM": "16:30:00",
+    "05:30 PM": "17:30:00",
+    "06:30 PM": "18:30:00",
+    "07:30 PM": "19:30:00",
+})
 
 GUACHARITO_ANIMALES = [
     "BALLENA","DELFIN","CARNERO","TORO","CIEMPIES","ALACRAN","LEON","RANA",
@@ -183,7 +222,11 @@ def load_and_prepare_data(excel_file, analizador):
     datos['Animal'] = datos['Animal'].astype(str).str.strip().str.upper()
     datos['Numero'] = pd.to_numeric(datos['Numero'], errors='coerce')
     if datos['Numero'].isna().sum() > 0:
-        print(f"  {datos['Numero'].isna().sum()} registros con numeros invalidos")
+        # Use the analyzer's logger when available, fallback to printing
+        try:
+            analizador.logger.warning(f"{datos['Numero'].isna().sum()} registros con numeros invalidos")
+        except Exception:
+            print(f"  {datos['Numero'].isna().sum()} registros con numeros invalidos")
 
     datos['Fecha'] = pd.to_datetime(datos['Fecha'], errors='coerce').dt.date
     datos['Hora'] = datos['Hora'].astype(str).str.strip().str.zfill(8)
@@ -201,9 +244,16 @@ def load_and_prepare_data(excel_file, analizador):
     datos['Num_Int'] = datos['Num_Int'].astype(int)
     datos = analizador.agregar_caracteristicas_avanzadas(datos)
 
-    print(f"\nRESUMEN DE DATOS:")
-    print(f"  Total registros: {len(datos)}")
-    print(f"  Rango fechas: {datos['Timestamp'].min()} a {datos['Timestamp'].max()}")
-    print(f"  Animales unicos: {datos['Animal'].nunique()}")
+    # Summary via logger if available
+    try:
+        analizador.logger.info("\nRESUMEN DE DATOS:")
+        analizador.logger.info(f"  Total registros: {len(datos)}")
+        analizador.logger.info(f"  Rango fechas: {datos['Timestamp'].min()} a {datos['Timestamp'].max()}")
+        analizador.logger.info(f"  Animales unicos: {datos['Animal'].nunique()}")
+    except Exception:
+        print(f"\nRESUMEN DE DATOS:")
+        print(f"  Total registros: {len(datos)}")
+        print(f"  Rango fechas: {datos['Timestamp'].min()} a {datos['Timestamp'].max()}")
+        print(f"  Animales unicos: {datos['Animal'].nunique()}")
 
     return datos

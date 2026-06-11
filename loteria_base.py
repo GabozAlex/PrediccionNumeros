@@ -2,6 +2,7 @@ import pandas as pd
 import os
 import numpy as np
 import pickle
+import joblib
 import json
 from datetime import datetime, date, timedelta
 
@@ -88,16 +89,16 @@ class Loteria:
         )
 
     def verificar_diccionario_animales(self):
-        print("\nVERIFICANDO LISTA DE ANIMALES...")
+        self.logger.info("\nVERIFICANDO LISTA DE ANIMALES...")
         total_animales = len(self.animales_carac)
-        print(f"  Total de animales: {total_animales}")
+        self.logger.info(f"  Total de animales: {total_animales}")
         if total_animales != len(self.config['animales']):
-            print(f"ERROR: Se esperaban {len(self.config['animales'])} animales, pero hay {total_animales}")
+            self.logger.error(f"Se esperaban {len(self.config['animales'])} animales, pero hay {total_animales}")
             return False
-        print("Lista correcta -", total_animales, "animales")
-        print("\nLISTA COMPLETA DE ANIMALES:")
+        self.logger.info(f"Lista correcta - {total_animales} animales")
+        self.logger.info("Lista completa de animales:")
         for i, animal in enumerate(sorted(self.animales_carac.keys()), 1):
-            print(f"   {i:2d}. {animal}")
+            self.logger.info(f"   {i:2d}. {animal}")
         return True
 
     def validar_animal(self, animal):
@@ -312,7 +313,10 @@ class Loteria:
         df['Prob_Cooc'] = prob_cooc_vals
         df['Lift_Dia'] = lift_dia_vals
 
-        print(f"Caracteristicas avanzadas anadidas: {len(df.columns)} features totales")
+        try:
+            self.logger.info(f"Caracteristicas avanzadas anadidas: {len(df.columns)} features totales")
+        except Exception:
+            print(f"Caracteristicas avanzadas anadidas: {len(df.columns)} features totales")
         return df
 
     def preparar_datos_ml_completo(self, datos):
@@ -321,7 +325,7 @@ class Loteria:
         df_ml = df_ml[df_ml['Animal'].isin(animales_validos)].copy()
         df_ml = df_ml[df_ml['Num_Int'].between(0, 37)].copy()
         if len(df_ml) < 50:
-            print(f"Advertencia: Solo {len(df_ml)} registros validos. Se recomiendan al menos 50.")
+            self.logger.warning(f"Solo {len(df_ml)} registros validos. Se recomiendan al menos 50.")
         # Filter to period where all Num_Int values (0-37) are present
         if 'Fecha' in df_ml.columns:
             sorted_dates = sorted(df_ml['Fecha'].unique())
@@ -338,7 +342,7 @@ class Loteria:
             df_ml = df_ml[df_ml['Fecha'] >= min_date].copy()
             after = len(df_ml)
             if before != after:
-                print(f"Filtrados datos desde {min_date}: {before} -> {after} registros (quitados {before-after} historicos)")
+                self.logger.info(f"Filtrados datos desde {min_date}: {before} -> {after} registros (quitados {before-after} historicos)")
         numeric_features = ['Dif_Ciclica_N', 'Prob_Num_Hora', 'Gap_Num', 'Repite_Num',
                             'Posicion_Previo', 'Diferencia_Ciclica', 'Prob_Hist_Hora', 'Prob_Trans_Markov',
                             'Frecuencia_10', 'Sorteos_Desde_Aparicion',
@@ -352,7 +356,7 @@ class Loteria:
         le_y = LabelEncoder()
         le_y.fit(sorted(range(38)))
         Y = df_ml['Num_Int']
-        print(f"Target: Num_Int (clases 0-37, {Y.nunique()} valores unicos)")
+        self.logger.info(f"Target: Num_Int (clases 0-37, {Y.nunique()} valores unicos)")
         available_features = []
         for feature in numeric_features + categorical_features:
             if feature in df_ml.columns:
@@ -362,10 +366,10 @@ class Loteria:
         X = X.dropna()
         filas_despues = len(X)
         if filas_antes != filas_despues:
-            print(f"Eliminadas {filas_antes - filas_despues} filas con valores NaN")
+            self.logger.info(f"Eliminadas {filas_antes - filas_despues} filas con valores NaN")
         Y = Y.loc[X.index]
-        print(f"Datos ML preparados: {len(X)} muestras, {len(available_features)} caracteristicas")
-        print(f"   Caracteristicas: {available_features}")
+        self.logger.info(f"Datos ML preparados: {len(X)} muestras, {len(available_features)} caracteristicas")
+        self.logger.debug(f"   Caracteristicas: {available_features}")
         return X, Y, le_y, numeric_features, categorical_features, available_features
 
     def crear_pipeline_ml(self, modelo, numeric_features, categorical_features):
@@ -389,7 +393,7 @@ class Loteria:
         return correctos / len(y_real)
 
     def entrenar_modelo_ml(self, X, Y, modelo, modelo_nombre, numeric_features, categorical_features):
-        print(f"\nEntrenando {modelo_nombre} con {len(X)} sorteos")
+        self.logger.info(f"Entrenando {modelo_nombre} con {len(X)} sorteos")
         tscv = TimeSeriesSplit(n_splits=5)
         pipeline = self.crear_pipeline_ml(modelo, numeric_features, categorical_features)
         for train_index, test_index in tscv.split(X):
@@ -397,7 +401,7 @@ class Loteria:
             Y_train, Y_test = Y.iloc[train_index], Y.iloc[test_index]
             pipeline.fit(X_train, Y_train)
             accuracy = pipeline.score(X_test, Y_test)
-            print(f"Precision de la validacion temporal: {accuracy:.2%}")
+            self.logger.info(f"Precision de la validacion temporal: {accuracy:.2%}")
         return pipeline
 
     def predecir_top_k_por_hora(self, pipeline, le_y, df_ml, k=25):
@@ -413,7 +417,7 @@ class Loteria:
                               'Prob_Cooc', 'Lift_Dia']
         available_numeric = [f for f in numeric_candidates if f in df_ml.columns]
         all_features = available_numeric + ['Hora_Sorteo']
-        print(f"\nGenerando Matriz de Prediccion TOP-{k} de la IA ({len(all_features)} features)...")
+        self.logger.info(f"Generando Matriz de Prediccion TOP-{k} de la IA ({len(all_features)} features)...")
         for hora in horas_sorteo:
             df_hora = df_ml[df_ml['Hora_Sorteo'] == hora].iloc[[-1]].copy()
             if df_hora.isnull().any().any() or df_hora.empty:
@@ -425,9 +429,9 @@ class Loteria:
                 # indices son directamente los Num_Int predecidos (0-37)
                 matriz_prediccion_ia[hora] = indices_top_k.tolist()
             except Exception as e:
-                print(f"Error en hora {hora}: {e}")
+                self.logger.warning(f"Error en hora {hora}: {e}")
                 continue
-        print(f"Matriz generada con {len(matriz_prediccion_ia)} horas")
+        self.logger.info(f"Matriz generada con {len(matriz_prediccion_ia)} horas")
         return matriz_prediccion_ia
 
     def _top25_cv_scorer(self, estimator, X, y):
@@ -547,11 +551,11 @@ class Loteria:
         tiempo_entrenamiento = datetime.now() - start_time
         avg_accuracy = np.mean(accuracies)
         avg_top25 = np.mean(top25_accuracies)
-        print(f"\nRESULTADOS {modelo_nombre}:")
-        print(f"   Accuracy Promedio: {avg_accuracy:.2%}")
-        print(f"   Top-25 Accuracy: {avg_top25:.2%}")
-        print(f"   Tiempo entrenamiento: {tiempo_entrenamiento}")
-        print(f"   Mejor Fold: {max(accuracies):.2%}")
+        self.logger.info(f"RESULTADOS {modelo_nombre}:")
+        self.logger.info(f"   Accuracy Promedio: {avg_accuracy:.2%}")
+        self.logger.info(f"   Top-25 Accuracy: {avg_top25:.2%}")
+        self.logger.info(f"   Tiempo entrenamiento: {tiempo_entrenamiento}")
+        self.logger.info(f"   Mejor Fold: {max(accuracies):.2%}")
         self.logger.info(f"Entrenamiento completado: {avg_accuracy:.2%} accuracy, {avg_top25:.2%} top-25")
         return modelo_optimizado
 
@@ -562,12 +566,10 @@ class Loteria:
             os.makedirs(self.config['modelos_dir'])
         if not os.path.exists(modelo_dir):
             os.makedirs(modelo_dir)
-        modelo_path = f"{modelo_dir}/modelo.pkl"
-        with open(modelo_path, 'wb') as f:
-            pickle.dump(modelo, f)
-        le_path = f"{modelo_dir}/label_encoder.pkl"
-        with open(le_path, 'wb') as f:
-            pickle.dump(le_y, f)
+        modelo_path = f"{modelo_dir}/modelo.joblib"
+        joblib.dump(modelo, modelo_path)
+        le_path = f"{modelo_dir}/label_encoder.joblib"
+        joblib.dump(le_y, le_path)
         metricas_path = f"{modelo_dir}/metricas.json"
         with open(metricas_path, 'w') as f:
             json.dump(metricas, f, indent=2)
@@ -585,10 +587,17 @@ class Loteria:
 
     def cargar_modelo(self, modelo_dir):
         try:
-            with open(f"{modelo_dir}/modelo.pkl", 'rb') as f:
-                modelo = pickle.load(f)
-            with open(f"{modelo_dir}/label_encoder.pkl", 'rb') as f:
-                le_y = pickle.load(f)
+            modelo_path = f"{modelo_dir}/modelo.joblib"
+            le_path = f"{modelo_dir}/label_encoder.joblib"
+            if os.path.exists(modelo_path) and os.path.exists(le_path):
+                modelo = joblib.load(modelo_path)
+                le_y = joblib.load(le_path)
+            else:
+                # Fallback to old pickle files for backward compatibility
+                with open(f"{modelo_dir}/modelo.pkl", 'rb') as f:
+                    modelo = pickle.load(f)
+                with open(f"{modelo_dir}/label_encoder.pkl", 'rb') as f:
+                    le_y = pickle.load(f)
             with open(f"{modelo_dir}/metricas.json", 'r') as f:
                 metricas = json.load(f)
             self.logger.info(f"Modelo cargado desde: {modelo_dir}")
@@ -612,16 +621,16 @@ class Loteria:
                 ultimo_modelo_dir = os.path.join(search_dir, modelos_dir[0])
                 modelo, le_y, metricas = self.cargar_modelo(ultimo_modelo_dir)
                 if modelo:
-                    print(f"Modelo cargado: {ultimo_modelo_dir}")
-                    print(f"   Fecha entrenamiento: {metricas.get('fecha_entrenamiento', 'N/A')}")
-                    print(f"   Muestras: {metricas.get('num_muestras', 'N/A')}")
+                    self.logger.info(f"Modelo cargado: {ultimo_modelo_dir}")
+                    self.logger.info(f"   Fecha entrenamiento: {metricas.get('fecha_entrenamiento', 'N/A')}")
+                    self.logger.info(f"   Muestras: {metricas.get('num_muestras', 'N/A')}")
                     acc = metricas.get('accuracy_promedio', None)
                     if acc is not None:
-                        print(f"   Accuracy: {acc:.2%}")
+                        self.logger.info(f"   Accuracy: {acc:.2%}")
                     else:
-                        print(f"   Accuracy: N/A")
+                        self.logger.info(f"   Accuracy: N/A")
                 return modelo, le_y, metricas
-        print(f"No se encontraron modelos de tipo: {tipo_modelo}")
+        self.logger.warning(f"No se encontraron modelos de tipo: {tipo_modelo}")
         return None, None, None
 
     def random_forest_optimizado(self, datos):
@@ -631,7 +640,7 @@ class Loteria:
             X, Y, le_y, numeric_features, categorical_features, available_features = self.preparar_datos_ml_completo(datos_con_features)
             if len(X) < 50:
                 self.logger.warning(f"Datos insuficientes: {len(X)} muestras (minimo 50 recomendado)")
-                print("Se recomiendan al menos 50 muestras para optimizacion")
+                self.logger.info("Se recomiendan al menos 50 muestras para optimizacion")
                 return None
             modelo_optimizado = self.entrenar_modelo_con_optimizacion(
                 X, Y, 'rf', numeric_features, categorical_features
@@ -646,11 +655,11 @@ class Loteria:
                 'fecha_entrenamiento': datetime.now().isoformat()
             }
             modelo_dir = self.guardar_modelo(modelo_optimizado, le_y, metricas, "random_forest")
-            print(f"Modelo optimizado guardado en: {modelo_dir}")
+            self.logger.info(f"Modelo optimizado guardado en: {modelo_dir}")
             return matriz_prediccion
         except Exception as e:
             self.logger.error(f"Error en Random Forest optimizado: {e}")
-            print(f"Error: {e}")
+            self.logger.exception(e)
             return None
 
     def xgboost_optimizado(self, datos):
@@ -660,7 +669,7 @@ class Loteria:
             X, Y, le_y, numeric_features, categorical_features, available_features = self.preparar_datos_ml_completo(datos_con_features)
             if len(X) < 50:
                 self.logger.warning(f"Datos insuficientes: {len(X)} muestras")
-                print("Se recomiendan al menos 50 muestras para optimizacion")
+                self.logger.info("Se recomiendan al menos 50 muestras para optimizacion")
                 return None
             modelo_optimizado = self.entrenar_modelo_con_optimizacion(
                 X, Y, 'xgb', numeric_features, categorical_features
@@ -675,27 +684,27 @@ class Loteria:
                 'fecha_entrenamiento': datetime.now().isoformat()
             }
             modelo_dir = self.guardar_modelo(modelo_optimizado, le_y, metricas, "xgboost")
-            print(f"Modelo optimizado guardado en: {modelo_dir}")
+            self.logger.info(f"Modelo optimizado guardado en: {modelo_dir}")
             return matriz_prediccion
         except Exception as e:
             self.logger.error(f"Error en XGBoost optimizado: {e}")
-            print(f"Error: {e}")
+            self.logger.exception(e)
             return None
 
     def evaluacion_estrategia_frecuencia(self, datos):
-        print("\nEvaluacion Estrategia DINAMICA (BASE: Frecuencia Historica por Num_Int)")
+        self.logger.info("Evaluacion Estrategia DINAMICA (BASE: Frecuencia Historica por Num_Int)")
         frecuencia_completa = datos.groupby('Hora')['Num_Int'].value_counts(normalize=True).mul(100).rename('Probabilidad').reset_index()
         top_10_map = {}
         for hora_24h in frecuencia_completa['Hora'].unique():
             top_10_lista = frecuencia_completa[frecuencia_completa['Hora'] == hora_24h].head(25)['Num_Int'].tolist()
             top_10_map[hora_24h] = top_10_lista
-        print("Lista Top-25 generada para todas las horas.")
+        self.logger.info("Lista Top-25 generada para todas las horas.")
         self.simular_estrategia(datos, top_10_map)
 
     def evaluacion_estrategia_ia(self, datos, matriz_prediccion_ia):
-        print("\nEvaluacion Estrategia DINAMICA (OPTIMIZADA: Prediccion de IA)")
+        self.logger.info("Evaluacion Estrategia DINAMICA (OPTIMIZADA: Prediccion de IA)")
         top_10_map = matriz_prediccion_ia
-        print(f"Matriz de prediccion cargada con {len(top_10_map)} horas.")
+        self.logger.info(f"Matriz de prediccion cargada con {len(top_10_map)} horas.")
         self.simular_estrategia(datos, top_10_map)
 
     def simular_estrategia(self, datos, top_10_map):
@@ -749,47 +758,46 @@ class Loteria:
         gasto_total = df_resultados['Gasto'].sum()
         ganancia_bruta_total = df_resultados['Ganancia_Bruta'].sum()
         ganancia_neta_total = df_resultados['Ganancia_Neta'].sum()
-        print("\n" + "="*70)
-        print("        RESUMEN DE LA EVALUACION DE LA ESTRATEGIA DINAMICA")
-        print("="*70)
-        print(f"Dias Completos Analizados: {total_dias}")
-        print(f"Dias Jugados: {total_dias_jugados}")
-        print("-" * 70)
-        print(f"Gasto Total: {gasto_total:,.2f} Bs")
-        print(f"Ganancia Bruta Total: {ganancia_bruta_total:,.2f} Bs")
-        print(f"GANANCIA/PERDIDA NETA TOTAL: {ganancia_neta_total:,.2f} Bs")
-        print("-" * 70)
+        self.logger.info("\n" + "="*70)
+        self.logger.info("        RESUMEN DE LA EVALUACION DE LA ESTRATEGIA DINAMICA")
+        self.logger.info("="*70)
+        self.logger.info(f"Dias Completos Analizados: {total_dias}")
+        self.logger.info(f"Dias Jugados: {total_dias_jugados}")
+        self.logger.info("-" * 70)
+        self.logger.info(f"Gasto Total: {gasto_total:,.2f} Bs")
+        self.logger.info(f"Ganancia Bruta Total: {ganancia_bruta_total:,.2f} Bs")
+        self.logger.info(f"GANANCIA/PERDIDA NETA TOTAL: {ganancia_neta_total:,.2f} Bs")
+        self.logger.info("-" * 70)
         if gasto_total > 0:
             roi = (ganancia_neta_total / gasto_total) * 100
-            print(f"Retorno de la Inversion (ROI): {roi:,.2f}%")
+            self.logger.info(f"Retorno de la Inversion (ROI): {roi:,.2f}%")
         if ganancia_neta_total > 0:
-            print("\nLa estrategia genero ganancias.")
+            self.logger.info("La estrategia genero ganancias.")
         elif ganancia_neta_total < 0:
-            print("\nAdvertencia: La estrategia genero perdidas.")
+            self.logger.warning("La estrategia genero perdidas.")
         else:
-            print("\nResultado: Punto de Equilibrio.")
-        print("\nAuditoria Diaria de Dias Jugados ---")
+            self.logger.info("Resultado: Punto de Equilibrio.")
+        self.logger.info("Auditoria Diaria de Dias Jugados ---")
         df_jugados = df_resultados[df_resultados['Jugar_Tarde'] == 'SI']
         if not df_jugados.empty:
             top_10_mejor = df_jugados.sort_values(by='Ganancia_Neta', ascending=False).head(10)
             top_10_peor = df_jugados.sort_values(by='Ganancia_Neta', ascending=True).head(10)
-            print("\nTOP 10 Dias con Mayor Ganancia Neta:")
-            print(top_10_mejor[['Fecha', 'Aciertos_Manana', 'Aciertos_Tarde', 'Ganancia_Neta']].to_string(index=False))
-            print("\nTOP 10 Dias con Mayor Perdida Neta:")
-            print(top_10_peor[['Fecha', 'Aciertos_Manana', 'Aciertos_Tarde', 'Ganancia_Neta']].to_string(index=False))
+            self.logger.info("TOP 10 Dias con Mayor Ganancia Neta:")
+            self.logger.info("\n" + top_10_mejor[['Fecha', 'Aciertos_Manana', 'Aciertos_Tarde', 'Ganancia_Neta']].to_string(index=False))
+            self.logger.info("TOP 10 Dias con Mayor Perdida Neta:")
+            self.logger.info("\n" + top_10_peor[['Fecha', 'Aciertos_Manana', 'Aciertos_Tarde', 'Ganancia_Neta']].to_string(index=False))
         else:
             print("No hubo dias suficientes.")
         return df_resultados
 
     def mostrar_matriz_prediccion(self, matriz_prediccion):
-        print("\nMATRIZ DE PREDICCION - TOP 20 POR HORA")
-        print("=" * 60)
+        self.logger.info("MATRIZ DE PREDICCION - TOP 20 POR HORA")
         for hora, nums in sorted(matriz_prediccion.items()):
-            print(f"Hora {hora}:")
+            lines = [f"Hora {hora}:"]
             for i, n in enumerate(nums[:25], 1):
                 animal = self.num_int_a_animal.get(n, "?")
-                print(f"    {i:2d}. {n:2d} ({animal})")
-            print()
+                lines.append(f"    {i:2d}. {n:2d} ({animal})")
+            self.logger.info("\n" + "\n".join(lines))
 
     def prediccion_hoy_ensemble(self, datos, modelo=None, le_y=None, k=25):
         df = datos.copy()

@@ -1,4 +1,5 @@
-import sys, time, datetime, logging, requests
+import sys, time, datetime, logging
+from utils import get_requests_session
 from bs4 import BeautifulSoup
 import pandas as pd
 import os
@@ -7,12 +8,17 @@ URL_BASE = "https://loteriadehoy.com/terminal/terminallagranjita/historico"
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 SALIDA = "data/TerminalGranjita.xlsx"
 
-def scrape_semana(fecha_inicio):
+def scrape_semana(fecha_inicio, session=None, timeout=30):
     records = []
     inicio = fecha_inicio.strftime("%Y-%m-%d")
     fin = (fecha_inicio + datetime.timedelta(days=6)).strftime("%Y-%m-%d")
     try:
-        resp = requests.get(f"{URL_BASE}/{inicio}/{fin}/", headers=HEADERS, timeout=30)
+        session = session or get_requests_session()
+        try:
+            session.headers.update(HEADERS)
+        except Exception:
+            pass
+        resp = session.get(f"{URL_BASE}/{inicio}/{fin}/", timeout=timeout)
         resp.raise_for_status()
     except Exception as e:
         return records

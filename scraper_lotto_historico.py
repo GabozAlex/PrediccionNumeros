@@ -1,4 +1,5 @@
-import sys, time, datetime, logging, requests
+import sys, time, datetime, logging
+from utils import get_requests_session
 from bs4 import BeautifulSoup
 import pandas as pd
 import os
@@ -18,12 +19,17 @@ ANIMALES_38 = [
 
 ANIMAL_A_NUMERO = {animal: i for i, animal in enumerate(ANIMALES_38)}
 
-def scrape_semana(fecha_inicio):
+def scrape_semana(fecha_inicio, session=None, timeout=30):
     records = []
     inicio = fecha_inicio.strftime("%Y-%m-%d")
     fin = (fecha_inicio + datetime.timedelta(days=6)).strftime("%Y-%m-%d")
     try:
-        resp = requests.get(f"{URL_BASE}/{inicio}/{fin}/", headers=HEADERS, timeout=30)
+        session = session or get_requests_session()
+        try:
+            session.headers.update(HEADERS)
+        except Exception:
+            pass
+        resp = session.get(f"{URL_BASE}/{inicio}/{fin}/", timeout=timeout)
         resp.raise_for_status()
     except Exception as e:
         return records

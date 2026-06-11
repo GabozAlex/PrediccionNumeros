@@ -7,6 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import os
+from utils import get_requests_session, HORA_MAP_12_TO_24
 
 URL_BASE = "https://www.loteriadehoy.com/animalito/lottoactivo/resultados/"
 HEADERS = {
@@ -51,12 +52,13 @@ HOUR_MAP_12_TO_24 = {
     "07:00 PM": "19:00:00",
 }
 
-def scrape_date(date_str):
+def scrape_date(date_str, session=None, timeout: int = 30):
     records = []
+    session = session or get_requests_session()
     try:
-        resp = requests.post(URL_BASE, data={"fecha": date_str}, headers=HEADERS, timeout=30)
+        resp = session.post(URL_BASE, data={"fecha": date_str}, timeout=timeout)
         resp.raise_for_status()
-    except requests.RequestException as e:
+    except Exception as e:
         logger.error(f"Error fetching {date_str}: {e}")
         return records
 
@@ -87,7 +89,7 @@ def scrape_date(date_str):
             logger.warning(f"Could not parse number '{num_str}' on {date_str}")
             continue
 
-        hour_24 = HOUR_MAP_12_TO_24.get(time_text)
+        hour_24 = HORA_MAP_12_TO_24.get(time_text)
         if not hour_24:
             logger.warning(f"Unknown time format '{time_text}' on {date_str}")
             continue
