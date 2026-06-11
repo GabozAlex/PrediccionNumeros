@@ -141,6 +141,7 @@ class Loteria:
         df['Mismo_Animal_3_Sorteos'] = df['Mismo_Animal_3_Sorteos'].astype(int)
         df['Media_Movil_5'] = df['Numero'].rolling(5, min_periods=1).mean()
         df['Std_Movil_5'] = df['Numero'].rolling(5, min_periods=1).std()
+        df['Hora_Sorteo'] = df['Hora'].astype(str).str.strip().str.zfill(8)
         # Features basadas en Num_Int
         df['Num_Int_Prev'] = df['Num_Int'].shift(1)
         df['Dif_Ciclica_N'] = df.apply(
