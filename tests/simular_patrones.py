@@ -98,7 +98,7 @@ for fname in EXCEL_FILES:
         # get_matriz_segundo_orden
         resultados['get_matriz_segundo_orden'] = probar_funcion(
             loteria, datos, 'get_matriz_segundo_orden',
-            loteria.get_matriz_segundo_orden, 5, 10, top_k=25)
+            loteria.get_matriz_segundo_orden, 5, 10, top_k=38)
 
         # preparar_datos_markov + construir_matrices_markov
         resultados['construir_matrices_markov'] = probar_funcion(
@@ -109,14 +109,14 @@ for fname in EXCEL_FILES:
         # get_matriz_global
         resultados['get_matriz_global'] = probar_funcion(
             loteria, datos, 'get_matriz_global',
-            loteria.get_matriz_global, top_k=25)
+            loteria.get_matriz_global, top_k=38)
 
         # get_matriz_hora with a sample pair
         if parejas:
             h_o, h_d = parejas[0]
             resultados['get_matriz_hora'] = probar_funcion(
                 loteria, datos, 'get_matriz_hora',
-                loteria.get_matriz_hora, h_o, h_d, top_k=25)
+                loteria.get_matriz_hora, h_o, h_d, top_k=38)
 
         aciertos = sum(1 for v in resultados.values() if v)
         total = len(resultados)

@@ -73,7 +73,6 @@ def cargar_datos_unificados():
         print(f"Cache cargado: {len(df)} registros")
         return df
 
-
 verificar_diccionario_animales = analizador.verificar_diccionario_animales
 validar_animal = analizador.validar_animal
 validar_numero = analizador.validar_numero

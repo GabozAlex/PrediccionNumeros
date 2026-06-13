@@ -49,7 +49,7 @@ def load_data(path):
     datos['Num_Int'] = datos['Num_Int'].astype(int)
     return datos
 
-def eval_analytical(loteria, d, fechas_train, fechas_test, top_k=25):
+def eval_analytical(loteria, d, fechas_train, fechas_test, top_k=38):
     """Evalua estrategias analiticas (como comparar_estrategias pero devuelve dict)."""
     d_train = d[d['Fecha'].isin(fechas_train)]
     dp_train = loteria.preparar_datos_markov(d_train)
@@ -99,7 +99,7 @@ def eval_analytical(loteria, d, fechas_train, fechas_test, top_k=25):
     hits['total'] = total
     return hits
 
-def eval_ml(name, clf, df_feat, fechas_train, fechas_test, top_k=25):
+def eval_ml(name, clf, df_feat, fechas_train, fechas_test, top_k=38):
     available = [f for f in FEATURES if f in df_feat.columns]
     train = df_feat[df_feat['Fecha'].isin(fechas_train)].copy()
     test = df_feat[df_feat['Fecha'].isin(fechas_test)].copy()
@@ -162,7 +162,7 @@ for fname in EXCEL_FILES:
 
     # --- Analiticos ---
     print(f"\n  MODELOS ANALITICOS:")
-    a = eval_analytical(loteria, datos, fechas_train, fechas_test, top_k=25)
+    a = eval_analytical(loteria, datos, fechas_train, fechas_test, top_k=38)
     t = a['total']
     for k in ['G', 'F', 'C']:
         pct = a[k] / t * 100 if t > 0 else 0

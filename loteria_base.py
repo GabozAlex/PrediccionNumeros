@@ -252,6 +252,8 @@ class Loteria:
             else:
                 prob_trans_vals.append(0.0)
 
+            # (Markov×Hora / Markov×Dia removed — keep only global transition probs)
+
             # Frequency of this animal in last 10 draws (before current)
             freq10_vals.append(recent_window.count(cur_animal))
             recent_window.append(cur_animal)
@@ -1328,7 +1330,7 @@ class Loteria:
         markov_hora_top = sorted(markov_hora_scores, key=markov_hora_scores.get, reverse=True)[:25]
         return num_real in markov_hora_top
 
-    def _eval_gxhora_hit(self, prev_state, actual, num_real, trans_prob, trans_total, trans_h, total_h, df, top_k=25):
+    def _eval_gxhora_hit(self, prev_state, actual, num_real, trans_prob, trans_total, trans_h, total_h, df, top_k=38):
         """Retorna True si num_real esta en top_k de GxHora para la transicion."""
         ultimo_num = int(prev_state['Num_Int'])
         hp = prev_state['Hora']
@@ -1391,7 +1393,7 @@ class Loteria:
             matrices[dia] = self._transiciones_markov(sub)
         return matrices
 
-    def prediccion_markov_dia_semana(self, datos, top_k=25, animal=None, hora=None, incluir_trasnocho=False):
+    def prediccion_markov_dia_semana(self, datos, top_k=38, animal=None, hora=None, incluir_trasnocho=False):
         df = datos.copy()
         if len(df) < 10:
             print("Pocos datos")
@@ -1455,7 +1457,7 @@ class Loteria:
         print(f"\n{'='*70}\n")
         return top
 
-    def evaluar_markov_dia_semana(self, datos, top_k=25):
+    def evaluar_markov_dia_semana(self, datos, top_k=38):
         df = datos.copy()
         if len(df) < 10: print("Pocos datos"); return
         matrices = self.get_matriz_markov_por_dia(df)
@@ -1488,7 +1490,7 @@ class Loteria:
         dfc['Dia_Semana'] = pd.to_datetime(dfc['Fecha'].astype(str)).dt.day_name()
         return {d: set(g['Num_Int'].unique()) for d, g in dfc.groupby('Dia_Semana')}
 
-    def prediccion_gxhora_filtro_dia(self, datos, top_k=25):
+    def prediccion_gxhora_filtro_dia(self, datos, top_k=38):
         """Predice con GxHora filtrando solo numeros que han salido en el dia actual."""
         df = datos.copy()
         if len(df) < 10:
@@ -1566,7 +1568,7 @@ class Loteria:
         print(f"\n{'='*70}\n")
         return top
 
-    def evaluar_gxhora_filtro_dia(self, datos, top_k=25):
+    def evaluar_gxhora_filtro_dia(self, datos, top_k=38):
         """Backtesting: compara GxHora normal vs GxHora con filtro por dia."""
         df = datos.copy()
         if len(df) < 10:
@@ -1615,7 +1617,7 @@ class Loteria:
         print(f"\n{'='*70}\n")
         return {'gxh': np.mean(res_gxh), 'filt': prom_filt}
 
-    def prediccion_markov_hora_dia(self, datos, top_k=25):
+    def prediccion_markov_hora_dia(self, datos, top_k=38):
         """Predice combinando Markov x Hora + dia de semana."""
         df = datos.copy()
         if len(df) < 10:
@@ -1698,7 +1700,7 @@ class Loteria:
                     print(f"  {i:<3} {n:<6} {nom:<16} {scores[n]:<8.2f}%")
         print(f"\n{'='*70}\n")
 
-    def evaluar_markov_hora_dia(self, datos, top_k=25):
+    def evaluar_markov_hora_dia(self, datos, top_k=38):
         """Backtesting: compara MkHora normal vs MkHora+Dia."""
         df = datos.copy()
         if len(df) < 10:
@@ -1824,7 +1826,7 @@ class Loteria:
             print(f"  Dias de riesgo (< 75%): {'; '.join(riesgo_d)}")
         print(f"\n{'='*70}\n")
 
-    def evaluar_markov_global(self, datos, top_k=25):
+    def evaluar_markov_global(self, datos, top_k=38):
         df = datos.copy()
         if len(df) < 10: print("Pocos datos"); return
         trans_prob, trans_total = self._transiciones_markov(df)
@@ -1846,7 +1848,7 @@ class Loteria:
         self._print_model_stats(hits, horas, dias, 'Markov Global', top_k)
         return hits
 
-    def evaluar_frecuencia_hora(self, datos, top_k=25):
+    def evaluar_frecuencia_hora(self, datos, top_k=38):
         df = datos.copy()
         if len(df) < 10: print("Pocos datos"); return
         freq_hora = self._frecuencias_hora(df, 'Solo_hora')
@@ -1867,7 +1869,7 @@ class Loteria:
         self._print_model_stats(hits, horas, dias, 'Frecuencia x Hora', top_k)
         return hits
 
-    def evaluar_markov_hora(self, datos, top_k=25):
+    def evaluar_markov_hora(self, datos, top_k=38):
         df = datos.copy()
         if len(df) < 10: print("Pocos datos"); return
         trans_prob, trans_total = self._transiciones_markov(df)
@@ -1885,7 +1887,7 @@ class Loteria:
         self._print_model_stats(hits, horas, dias, 'Markov x Hora (MkHora)', top_k)
         return hits
 
-    def evaluar_gxhora(self, datos, top_k=25):
+    def evaluar_gxhora(self, datos, top_k=38):
         df = datos.copy()
         if len(df) < 10: print("Pocos datos"); return
         trans_prob, trans_total = self._transiciones_markov(df)
@@ -1903,7 +1905,7 @@ class Loteria:
         self._print_model_stats(hits, horas, dias, 'GxHora', top_k)
         return hits
 
-    def evaluar_top5_completo(self, datos, top_k=25):
+    def evaluar_top5_completo(self, datos, top_k=38):
         """Tabla detallada con los 5 modelos (sin ML)."""
         df = datos.copy()
         if len(df) < 10: print("Pocos datos"); return
@@ -2028,7 +2030,7 @@ class Loteria:
         print(f"\n{'='*110}\n")
         return rows
 
-    def analizar_aciertos_por_dia_semana(self, datos, top_k=25):
+    def analizar_aciertos_por_dia_semana(self, datos, top_k=38):
         df = datos.copy()
         if len(df) < 10:
             print("Pocos datos")
@@ -2071,7 +2073,7 @@ class Loteria:
         print(f"\n{'='*60}\n")
         return df_res
 
-    def analizar_aciertos_por_hora(self, datos, top_k=25):
+    def analizar_aciertos_por_hora(self, datos, top_k=38):
         df = datos.copy()
         if len(df) < 10:
             print("Pocos datos")
@@ -2114,7 +2116,7 @@ class Loteria:
         print(f"\n{'='*60}\n")
         return df_res
 
-    def analizar_fallos_por_dia_semana(self, datos, top_k=25):
+    def analizar_fallos_por_dia_semana(self, datos, top_k=38):
         df = datos.copy()
         if len(df) < 10:
             print("Pocos datos")
@@ -2154,7 +2156,7 @@ class Loteria:
         print(f"\n{'='*60}\n")
         return df_res
 
-    def analizar_fallos_por_hora(self, datos, top_k=25):
+    def analizar_fallos_por_hora(self, datos, top_k=38):
         df = datos.copy()
         if len(df) < 10:
             print("Pocos datos")
@@ -2331,7 +2333,7 @@ class Loteria:
             print(f"  {par[0]:2d}({a1:<10}) + {par[1]:2d}({a2:<10}) -> {cnt} dias")
         print(f"\n{'='*70}\n")
 
-    def analizar_coocurrencias(self, datos, top_k=25):
+    def analizar_coocurrencias(self, datos, top_k=38):
         from collections import Counter
         from itertools import combinations
         df = datos.copy()
@@ -2374,7 +2376,7 @@ class Loteria:
 
         print(f"\n{'='*70}\n")
 
-    def analizar_coocurrencias_por_rango(self, datos, top_k=25):
+    def analizar_coocurrencias_por_rango(self, datos, top_k=38):
         from collections import Counter
         from itertools import combinations
         df = datos.copy()
@@ -2516,48 +2518,8 @@ class Loteria:
             print('  ' + ', '.join(rows))
 
     def prediccion_markov_hora(self, datos):
-        df = datos.copy()
-        print("\n" + "=" * 74)
-        print("  PREDICCION COMBINADA MARKOV + HORA (Num_Int)")
-        print("=" * 74)
-        print("  Ranking = Prob_Markov + Prob_Historica_Hora\n")
-        trans_prob, trans_total = self._transiciones_markov(df)
-        hora_freq = self._frecuencias_hora(df, 'Solo_hora')
-        ultimo = df.iloc[-1]
-        ultimo_num = int(ultimo['Num_Int'])
-        ultimo_animal = self.num_int_a_animal.get(ultimo_num, "?")
-        ultimo_hora = ultimo['Solo_hora']
-        print(f"  Ultimo: {ultimo_num:2d} ({ultimo_animal}) a las {ultimo_hora}\n")
-        if ultimo_num not in trans_total:
-            print("  Sin datos de transicion para este numero.")
-            return
-        scored = []
-        for (prev_n, n), mp in trans_prob.items():
-            if prev_n == ultimo_num:
-                hp = hora_freq.get(ultimo_hora, {}).get(n, 0)
-                scored.append((mp + hp, mp, hp, n))
-        scored.sort(reverse=True)
-        print(f"  {'#':<3} {'Num':<4} {'Animal':<14} {'Score':<7} {'Markov':<7} {'+Hora':<7}")
-        print(f"  {'-'*48}")
-        for i, (sc, mp, hp, n) in enumerate(scored[:25], 1):
-            a = self.num_int_a_animal.get(n, "?")
-            print(f"  {i:<3} {n:<4} {a:<14} {sc:<7.1f} {mp:<7.1f}% {hp:<7.1f}%")
-        print(f"\n  (Mostrando Top-25 de {len(scored)} numeros posibles)")
-        print(f"\n  {'='*74}")
-        print(f"  PREDICCION POR CADA HORA DEL DIA (Top-25 combinado)")
-        print(f"  {'='*74}")
-        horas = sorted(df['Solo_hora'].unique())
-        for hora in horas:
-            if hora <= ultimo_hora:
-                continue
-            h_scored = []
-            for n in [n for _,_,_,n in scored[:25]]:
-                hp = hora_freq.get(hora, {}).get(n, 0)
-                mp = trans_prob.get((ultimo_num, n), 0)
-                h_scored.append((mp + hp, n))
-            h_scored.sort(reverse=True)
-            top20 = ', '.join(f"{n:2d}({self.num_int_a_animal.get(n,'?'):.6s}) ({s:.0f})" for s,n in h_scored[:25])
-            print(f"  {hora:<10} -> {top20}")
+        # Return structured prediction data (no printing) so callers can render as needed.
+        return self.generar_prediccion_markov(datos)
 
     def validar_modelo_markov(self, datos, porcentaje_entrenamiento=0.8, top_k=5):
         print(f"\nValidacion Cruzada del Modelo de Markov (TOP-{top_k})")
@@ -2603,6 +2565,82 @@ class Loteria:
                 print("Resultado: El rendimiento esta cerca o por debajo del azar.")
         else:
             print("No se pudieron realizar predicciones validas en el conjunto de prueba.")
+
+    def generar_prediccion_markov(self, datos, top_k=25):
+        """Genera la predicción Markov+Hora en estructura de datos.
+
+        Retorna un dict con claves:
+          - 'top': lista de items {rank,num,animal,score,markov,hora_pct}
+          - 'por_hora': OrderedDict hora->lista de {num,animal,score}
+          - 'ultimo': {num,animal,hora}
+        """
+        df = datos.copy()
+        trans_prob, trans_total = self._transiciones_markov(df)
+        hora_freq = self._frecuencias_hora(df, 'Solo_hora')
+        ultimo = df.iloc[-1]
+        ultimo_num = int(ultimo['Num_Int']) if 'Num_Int' in ultimo else None
+        ultimo_animal = self.num_int_a_animal.get(ultimo_num, "?")
+        ultimo_hora = ultimo['Solo_hora'] if 'Solo_hora' in ultimo else None
+
+        # prepare scored list
+        scored = []
+        for (prev_n, n), mp in trans_prob.items():
+            if prev_n == ultimo_num:
+                hp = hora_freq.get(ultimo_hora, {}).get(n, 0)
+                scored.append((mp + hp, mp, hp, n))
+        scored.sort(reverse=True)
+
+        top = []
+        for i, (sc, mp, hp, n) in enumerate(scored[:top_k], 1):
+            a = self.num_int_a_animal.get(n, "?")
+            top.append({
+                'rank': i,
+                'num': n,
+                'animal': a,
+                'score': round(sc, 1),
+                'markov': round(mp, 1),
+                'hora_pct': round(hp, 1),
+            })
+
+        # hours of interest (08:00 AM .. 07:00 PM)
+        horas = ["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM",
+                 "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM",
+                 "04:00 PM", "05:00 PM", "06:00 PM", "07:00 PM"]
+
+        por_hora = {}
+
+        # helper to parse hour strings robustly into time objects
+        def _parse_time(hstr):
+            try:
+                t = pd.to_datetime(hstr, format='%I:%M %p', errors='coerce')
+                if pd.isna(t):
+                    t = pd.to_datetime(hstr, format='%H:%M', errors='coerce')
+                return None if pd.isna(t) else t.time()
+            except Exception:
+                return None
+
+        ultimo_time = _parse_time(ultimo_hora) if ultimo_hora is not None else None
+
+        for hora in horas:
+            hora_time = _parse_time(hora)
+            # if we cannot parse the hour, skip it
+            if hora_time is None:
+                continue
+            # skip hours earlier-or-equal than the last observed hour
+            if ultimo_time is not None and hora_time <= ultimo_time:
+                continue
+            h_scored = []
+            for _, _, _, n in scored[:top_k]:
+                hp = hora_freq.get(hora, {}).get(n, 0)
+                mp = trans_prob.get((ultimo_num, n), 0)
+                h_scored.append((mp + hp, n))
+            h_scored.sort(reverse=True)
+            lista = []
+            for s, n in h_scored[:top_k]:
+                lista.append({'num': n, 'animal': self.num_int_a_animal.get(n, '?'), 'score': round(s, 1)})
+            por_hora[hora] = lista
+
+        return {'top': top, 'por_hora': por_hora, 'ultimo': {'num': ultimo_num, 'animal': ultimo_animal, 'hora': ultimo_hora}}
 
     def prediccion_por_hora_especifica(self, datos):
         print("\nPrediccion Historica por Hora Especifica")
@@ -3461,7 +3499,7 @@ class Loteria:
         df['Hora'] = df['Hora'].astype(str).str.strip().str.zfill(8)
         return df
 
-    def get_matriz_global(self, datos, top_k=25, incluir_trasnocho=False):
+    def get_matriz_global(self, datos, top_k=38, incluir_trasnocho=False):
         """
         Retorna dict[numero_int] = [(siguiente_num, prob %, muestras), ...] top_k de la matriz global.
         """
@@ -3478,12 +3516,12 @@ class Loteria:
             resultado[n] = scores[:top_k]
         return resultado
 
-    def get_matriz_global_por_animal(self, datos, top_k=25, incluir_trasnocho=False):
+    def get_matriz_global_por_animal(self, datos, top_k=38, incluir_trasnocho=False):
         """Compat: wrappea get_matriz_global con claves de animal."""
         m = self.get_matriz_global(datos, top_k=top_k, incluir_trasnocho=incluir_trasnocho)
         return {self.num_int_a_animal.get(k, str(k)): v for k, v in m.items()}
 
-    def get_matriz_hora(self, datos, hora_origen, hora_destino, top_k=25, incluir_trasnocho=False):
+    def get_matriz_hora(self, datos, hora_origen, hora_destino, top_k=38, incluir_trasnocho=False):
         """
         Retorna dict[numero_int] = [(siguiente_num, prob %, muestras), ...] para una transicion horaria.
         """
@@ -3500,12 +3538,12 @@ class Loteria:
             resultado[n] = scores[:top_k]
         return resultado
 
-    def get_matriz_hora_por_animal(self, datos, hora_origen, hora_destino, top_k=25, incluir_trasnocho=False):
+    def get_matriz_hora_por_animal(self, datos, hora_origen, hora_destino, top_k=38, incluir_trasnocho=False):
         """Compat: wrappea get_matriz_hora con claves de animal."""
         m = self.get_matriz_hora(datos, hora_origen, hora_destino, top_k=top_k, incluir_trasnocho=incluir_trasnocho)
         return {self.num_int_a_animal.get(k, str(k)): v for k, v in m.items()}
 
-    def get_matriz_segundo_orden(self, datos, num1, num2, top_k=25):
+    def get_matriz_segundo_orden(self, datos, num1, num2, top_k=38):
         """Retorna [(siguiente_num, prob%, muestras)] top_k usando Markov de 2do orden sobre Num_Int."""
         from collections import defaultdict
         d = self.preparar_datos_markov(datos)
@@ -3525,7 +3563,7 @@ class Loteria:
         items.sort(key=lambda x: -x[1])
         return items[:top_k]
 
-    def get_matriz_coocurrencia(self, datos, top_k=25):
+    def get_matriz_coocurrencia(self, datos, top_k=38):
         """
         Retorna dict[numero_int] = [(siguiente_num, prob %, muestras), ...] top_k
         basado en co-ocurrencia: numeros que suelen salir en el mismo dia.
@@ -3554,7 +3592,7 @@ class Loteria:
             resultado[n] = scores[:top_k]
         return resultado
 
-    def get_matriz_coocurrencia_por_animal(self, datos, top_k=25):
+    def get_matriz_coocurrencia_por_animal(self, datos, top_k=38):
         """Wrapper de get_matriz_coocurrencia con claves de animal."""
         m = self.get_matriz_coocurrencia(datos, top_k=top_k)
         return {self.num_int_a_animal.get(k, str(k)): v for k, v in m.items()}
@@ -3635,7 +3673,7 @@ class Loteria:
         sorted_items = sorted(combinado.items(), key=lambda x: -x[1][0])
         return [(n, s, m) for n, (s, m) in sorted_items[:top_k]]
 
-    def analizar_secuencias_aciertos_fallos(self, datos, top_k=25, train_pct=0.7):
+    def analizar_secuencias_aciertos_fallos(self, datos, top_k=38, train_pct=0.7):
         from collections import defaultdict
         d = datos.copy()
         print(f"\n{'='*70}")
@@ -3742,7 +3780,7 @@ class Loteria:
             print(f"  {h12:<14} {pct_ac:>8.1f}%  {tr_ac:>10.1f}%  {tr_fa:>10.1f}%")
         print(f"\n{'='*70}\n")
 
-    def comparar_estrategias(self, datos, top_k=25, train_pct=0.7):
+    def comparar_estrategias(self, datos, top_k=38, train_pct=0.7):
         from collections import defaultdict
         d = datos.copy()
         print(f"\n{'='*80}")

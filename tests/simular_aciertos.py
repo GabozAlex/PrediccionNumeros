@@ -35,7 +35,7 @@ def load_data(path):
     datos['Num_Int'] = datos['Num_Int'].astype(int)
     return datos
 
-def evaluar_walk_forward(loteria, datos, top_k=25, train_pct=0.7):
+def evaluar_walk_forward(loteria, datos, top_k=38, train_pct=0.7):
     fechas_completas = datos.groupby('Fecha').size()
     fechas_completas = fechas_completas[fechas_completas == 12].index
     d = datos[datos['Fecha'].isin(fechas_completas)].copy()
@@ -149,7 +149,7 @@ for fname in EXCEL_FILES:
     datos = load_data(path)
     print(f"  Registros: {len(datos)}")
     
-    totals = evaluar_walk_forward(loteria, datos, top_k=25, train_pct=0.7)
+    totals = evaluar_walk_forward(loteria, datos, top_k=38, train_pct=0.7)
     t = totals['total']
     print(f"\n  {'Estrategia':<20} {'Aciertos':>10} {'Total':>8} {'%':>8}")
     print(f"  {'─'*48}")
