@@ -175,6 +175,10 @@ def auto_scrape_missing_dates(datos, scrape_func, save_func, excel_file, delay=1
     import datetime as _dt
     import time
 
+    if datos is None or datos.empty:
+        print("Auto-scraper: no hay datos existentes")
+        return datos
+
     fechas_existentes = set(pd.to_datetime(datos['Fecha']).dt.strftime("%Y-%m-%d").unique())
     hoy = _dt.date.today()
     ultima = _dt.datetime.strptime(max(fechas_existentes), "%Y-%m-%d").date()

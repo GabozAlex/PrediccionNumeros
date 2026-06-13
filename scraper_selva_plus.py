@@ -16,21 +16,6 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
-HOUR_MAP_12_TO_24 = {
-    "08:00 AM": "08:00:00",
-    "09:00 AM": "09:00:00",
-    "10:00 AM": "10:00:00",
-    "11:00 AM": "11:00:00",
-    "12:00 PM": "12:00:00",
-    "01:00 PM": "13:00:00",
-    "02:00 PM": "14:00:00",
-    "03:00 PM": "15:00:00",
-    "04:00 PM": "16:00:00",
-    "05:00 PM": "17:00:00",
-    "06:00 PM": "18:00:00",
-    "07:00 PM": "19:00:00",
-}
-
 logger = setup_logging('selva_plus_scraper')
 
 def scrape_date(date_str, session=None, timeout=30):
@@ -72,8 +57,8 @@ def scrape_date(date_str, session=None, timeout=30):
             logger.warning(f"Could not parse number '{num_str}' on {date_str}")
             continue
 
-        # Use shared mapping from utils when available
-        hour_24 = HORA_MAP_12_TO_24.get(time_text) if 'HORA_MAP_12_TO_24' in globals() else HOUR_MAP_12_TO_24.get(time_text)
+        # Use shared mapping from utils
+        hour_24 = HORA_MAP_12_TO_24.get(time_text)
         if not hour_24:
             logger.warning(f"Unknown time format '{time_text}' on {date_str}")
             continue
@@ -122,9 +107,9 @@ def save_to_excel(df, filename="data/SelvaPlus.xlsx"):
 
     if existing is not None and not existing.empty:
         existing['Fecha'] = pd.to_datetime(existing['Fecha']).dt.strftime("%Y-%m-%d")
-        existing['Hora'] = existing['Hora'].astype(str).str.strip()
+        existing['Hora'] = existing['Hora'].astype(str).str.strip().str.zfill(8)
         df['Fecha'] = pd.to_datetime(df['Fecha']).dt.strftime("%Y-%m-%d")
-        df['Hora'] = df['Hora'].astype(str).str.strip()
+        df['Hora'] = df['Hora'].astype(str).str.strip().str.zfill(8)
         combined = pd.concat([existing, df], ignore_index=True)
         combined = combined.drop_duplicates(subset=["Fecha", "Hora"], keep="last")
         combined = combined.sort_values(["Fecha", "Hora"]).reset_index(drop=True)

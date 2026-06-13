@@ -537,11 +537,11 @@ class Loteria:
         for fold, (train_index, test_index) in enumerate(tscv.split(X)):
             X_train, X_test = X.iloc[train_index], X.iloc[test_index]
             Y_train, Y_test = Y.iloc[train_index], Y.iloc[test_index]
-            if fold == 0:
-                try:
-                    modelo_optimizado.fit(X_train, Y_train)
-                except Exception as e:
-                    self.logger.warning(f"Fold 0 fit failed: {e}, using CV-fitted model")
+            try:
+                modelo_optimizado.fit(X_train, Y_train)
+            except Exception as e:
+                self.logger.warning(f"Fold {fold+1} fit failed: {e}")
+                continue
             try:
                 accuracy = modelo_optimizado.score(X_test, Y_test)
                 y_proba = modelo_optimizado.predict_proba(X_test)
@@ -1202,7 +1202,7 @@ class Loteria:
                 combined_rf_xgb_rank = None
             global_hit = num_real in global_top25
             top1 = xgb_top[0] if xgb_top else rf_top[0] if rf_top else combined_mh_top[0] if combined_mh_top else markov_top[0] if markov_top else hourly_top[0] if hourly_top else "?"
-            acertado = num_real in (xgb_top or rf_top or combined_mh_top or markov_top or hourly_top)
+            acertado = (xgb_top and num_real in xgb_top) or (rf_top and num_real in rf_top) or (combined_mh_top and num_real in combined_mh_top) or (markov_top and num_real in markov_top) or (hourly_top and num_real in hourly_top)
             resultados.append({
                 'fecha': fecha, 'hora': hora_real, 'real': num_real,
                 'predicho': top1, 'acertado': acertado,
@@ -1721,6 +1721,7 @@ class Loteria:
                 matrices_dia[dia] = (th, toh)
         res_mkh = []
         res_mkhd = []
+        res_dias = []
         for i in range(1, len(df)):
             if df.iloc[i-1]['Fecha'] != df.iloc[i]['Fecha']:
                 continue
@@ -1734,6 +1735,7 @@ class Loteria:
             ul = int(prev['Num_Int'])
             mkh_hit = self._add_markov_hora_hit(df, i, prev, act, num_real, trans_h_g, total_h_g, trans_prob, trans_total)
             res_mkh.append(mkh_hit)
+            res_dias.append(dia)
             mkhd_hit = False
             if dia in matrices_dia:
                 th_d, toh_d = matrices_dia[dia]
@@ -2622,13 +2624,6 @@ class Loteria:
         ultimo_time = _parse_time(ultimo_hora) if ultimo_hora is not None else None
 
         for hora in horas:
-            hora_time = _parse_time(hora)
-            # if we cannot parse the hour, skip it
-            if hora_time is None:
-                continue
-            # skip hours earlier-or-equal than the last observed hour
-            if ultimo_time is not None and hora_time <= ultimo_time:
-                continue
             h_scored = []
             for _, _, _, n in scored[:top_k]:
                 hp = hora_freq.get(hora, {}).get(n, 0)
@@ -2636,11 +2631,331 @@ class Loteria:
                 h_scored.append((mp + hp, n))
             h_scored.sort(reverse=True)
             lista = []
-            for s, n in h_scored[:top_k]:
+            for s, n in h_scored[:38]:
                 lista.append({'num': n, 'animal': self.num_int_a_animal.get(n, '?'), 'score': round(s, 1)})
             por_hora[hora] = lista
 
         return {'top': top, 'por_hora': por_hora, 'ultimo': {'num': ultimo_num, 'animal': ultimo_animal, 'hora': ultimo_hora}}
+
+    def generar_prediccion_markov_segundo_orden(self, datos, top_k=25):
+        """Markov de segundo orden: usa los últimos 2 números para predecir el siguiente."""
+        if len(datos) < 3:
+            print("Datos insuficientes (min 3 registros).")
+            return
+        ultimo = datos.iloc[-1]
+        penultimo = datos.iloc[-2]
+        num1 = int(penultimo['Num_Int'])
+        num2 = int(ultimo['Num_Int'])
+        a1 = self.num_int_a_animal.get(num1, "?")
+        a2 = self.num_int_a_animal.get(num2, "?")
+        items = self.get_matriz_segundo_orden(datos, num1, num2, top_k=38)
+        if not items:
+            print(f"\nNo hay transiciones registradas para el par ({num1}-{num2}).")
+            return
+        total_muestras = sum(cnt for _, _, cnt in items)
+        print(f"\n{'='*60}")
+        print(f"  PREDICCIÓN MARKOV DE SEGUNDO ORDEN")
+        print(f"{'='*60}")
+        print(f"  Últimos: {num1} ({a1}) → {num2} ({a2})")
+        print(f"  Muestras totales para este par: {total_muestras}")
+        print(f"{'─'*60}")
+        print(f"  {'#':<5} {'Siguiente':<12} {'Animal':<16} {'Prob':<9} {'Muestras':<10}")
+        print(f"  {'─'*50}")
+        for i, (n, prob, cnt) in enumerate(items[:top_k], 1):
+            a = self.num_int_a_animal.get(n, "?")
+            print(f"  {i:<5} {n:<12} {a:<16} {prob:<8.1f}% {cnt:<5}/{total_muestras}")
+        print(f"{'='*60}\n")
+        return items[:top_k]
+
+    # ── Análisis estadístico ──────────────────────────────────────────
+
+    def _get_accuracy_top_k(self, datos, top_k=25, counts=None, totals=None):
+        """Calcula accuracy de Markov Top-K en todo el dataset.
+        Si se pasan counts/totals precomputados, los reusa (más rápido para permutaciones)."""
+        if len(datos) < 10:
+            return 0.0
+        if counts is None or totals is None:
+            trans_prob, trans_total = self._transiciones_markov(datos)
+        else:
+            trans_prob = {}
+            for prev, followers in counts.items():
+                for cur, cnt in followers.items():
+                    trans_prob[(prev, cur)] = cnt / totals[prev] * 100
+            trans_total = totals
+        hits = 0
+        total = 0
+        for i in range(1, len(datos)):
+            if datos.iloc[i-1]['Fecha'] == datos.iloc[i]['Fecha']:
+                prev_num = int(datos.iloc[i-1]['Num_Int'])
+                real_num = int(datos.iloc[i]['Num_Int'])
+                if prev_num in trans_total:
+                    scores = [(n, trans_prob.get((prev_num, n), 0)) for n in range(38)]
+                    scores.sort(key=lambda x: -x[1])
+                    top_k_nums = [n for n, _ in scores[:top_k]]
+                    if real_num in top_k_nums:
+                        hits += 1
+                    total += 1
+        return hits / total if total > 0 else 0.0
+
+    def test_significancia_markov(self, datos, permutaciones=50, top_k=25):
+        """Prueba de permutación: ¿el modelo Markov es significativamente mejor que azar?
+        Baraja los números aleatoriamente y compara el accuracy real vs el de datos revueltos.
+        Si p-valor < 0.05, el modelo tiene señal real.
+        Ahora más rápido: precomputa transiciones y reusa en permutaciones.
+        """
+        import random as _random
+        from collections import defaultdict
+        print(f"\n{'='*70}")
+        print("  TEST DE SIGNIFICANCIA ESTADÍSTICA (PERMUTACIÓN)")
+        print(f"{'='*70}")
+        print(f"  Dataset: {len(datos)} registros")
+        print(f"  Top-K evaluado: {top_k}")
+        print(f"  Permutaciones: {permutaciones}")
+        print(f"{'─'*70}")
+
+        # Precompute transition structure from original data
+        counts = defaultdict(lambda: defaultdict(int))
+        totals = defaultdict(int)
+        for i in range(1, len(datos)):
+            if datos.iloc[i-1]['Fecha'] == datos.iloc[i]['Fecha']:
+                prev = int(datos.iloc[i-1]['Num_Int'])
+                cur = int(datos.iloc[i]['Num_Int'])
+                counts[prev][cur] += 1
+                totals[prev] += 1
+
+        real_acc = self._get_accuracy_top_k(datos, top_k, counts, totals)
+        aleatorio_esperado = top_k / 38
+        print(f"\n  Accuracy real:           {real_acc:.4f} ({real_acc*100:.2f}%)")
+        print(f"  Azar teórico (K/38):     {aleatorio_esperado:.4f} ({aleatorio_esperado*100:.2f}%)")
+
+        nums_originales = datos['Num_Int'].values.copy()
+        count_mejores = 0
+        print(f"\n  Ejecutando {permutaciones} permutaciones...", end=' ', flush=True)
+        for p in range(permutaciones):
+            shuffled_nums = _random.sample(list(nums_originales), len(nums_originales))
+            # Recompute counts with shuffled numbers (faster than full _transiciones_markov)
+            shuf_counts = defaultdict(lambda: defaultdict(int))
+            shuf_totals = defaultdict(int)
+            for i in range(1, len(datos)):
+                if datos.iloc[i-1]['Fecha'] == datos.iloc[i]['Fecha']:
+                    prev = shuffled_nums[i-1]
+                    cur = shuffled_nums[i]
+                    shuf_counts[prev][cur] += 1
+                    shuf_totals[prev] += 1
+            acc = self._get_accuracy_top_k(datos, top_k, shuf_counts, shuf_totals)
+            if acc >= real_acc:
+                count_mejores += 1
+            if (p + 1) % 10 == 0:
+                print(f"{p+1}..", end='', flush=True)
+        print(" hecho.")
+
+        p_valor = count_mejores / permutaciones
+        print(f"\n  Veces que el azar superó al real: {count_mejores}/{permutaciones}")
+        print(f"  P-valor: {p_valor:.4f}")
+        print(f"{'─'*70}")
+        if p_valor < 0.01:
+            print("  RESULTADO: *** Señal MUY significativa (p<0.01) ***")
+        elif p_valor < 0.05:
+            print("  RESULTADO: ** Señal significativa (p<0.05) **")
+        elif p_valor < 0.10:
+            print("  RESULTADO: * Señal marginal (p<0.10) *")
+        else:
+            print("  RESULTADO: Sin señal significativa (p>=0.10)")
+            print("  El modelo NO es mejor que el azar.")
+        print(f"{'='*70}\n")
+        return {'real_acc': real_acc, 'p_valor': p_valor, 'permutaciones': permutaciones}
+
+    def walk_forward_validation(self, datos, top_k=25):
+        """Validación walk-forward: entrena con datos pasados, predice el siguiente, avanza una ventana.
+        Optimizada con matriz incremental.
+        """
+        if len(datos) < 20:
+            print("Datos insuficientes para walk-forward (min 20).")
+            return
+        print(f"\n{'='*70}")
+        print("  VALIDACIÓN WALK-FORWARD (VENTANA MÓVIL)")
+        print(f"{'='*70}")
+        print(f"  Dataset: {len(datos)} registros")
+        print(f"  Top-K: {top_k}")
+        print(f"{'─'*70}")
+
+        from collections import defaultdict
+        # Build transition matrix incrementally
+        counts = defaultdict(lambda: defaultdict(int))
+        totals = defaultdict(int)
+        corte = int(len(datos) * 0.7)
+        # Seed matrix with first `corte` records
+        for i in range(1, corte):
+            if datos.iloc[i-1]['Fecha'] == datos.iloc[i]['Fecha']:
+                prev = int(datos.iloc[i-1]['Num_Int'])
+                cur = int(datos.iloc[i]['Num_Int'])
+                counts[prev][cur] += 1
+                totals[prev] += 1
+
+        hits = 0
+        total = 0
+        last_reported = 0
+        for i in range(corte, len(datos) - 1):
+            test_row = datos.iloc[i]
+            next_real = int(datos.iloc[i + 1]['Num_Int'])
+            # Skip cross-day transitions
+            if test_row['Fecha'] != datos.iloc[i + 1]['Fecha']:
+                # Still add transition to matrix for future predictions
+                prev = int(datos.iloc[i-1]['Num_Int']) if i > 0 else int(test_row['Num_Int'])
+                cur = int(test_row['Num_Int'])
+                counts[prev][cur] += 1
+                totals[prev] += 1
+                continue
+
+            prev_num = int(test_row['Num_Int'])
+            if prev_num in totals:
+                scores = [(n, counts[prev_num].get(n, 0) / totals[prev_num] * 100) for n in range(38)]
+                scores.sort(key=lambda x: -x[1])
+                top_k_nums = [n for n, _ in scores[:top_k]]
+                if next_real in top_k_nums:
+                    hits += 1
+                total += 1
+
+            # Add this transition to matrix for future steps
+            prev = int(test_row['Num_Int'])
+            cur = next_real
+            counts[prev][cur] += 1
+            totals[prev] += 1
+
+            # Progress every 10% 
+            pct = ((i - corte + 1) * 100) // (len(datos) - 1 - corte)
+            if pct // 10 > last_reported // 10:
+                print(f"  Progreso: {pct}%...", flush=True)
+                last_reported = pct
+        accuracy = hits / total if total > 0 else 0.0
+        aleatorio = top_k / 38
+        print(f"\n  Predicciones realizadas: {total}")
+        print(f"  Aciertos (Top-{top_k}):    {hits}")
+        print(f"  Accuracy walk-forward:    {accuracy:.4f} ({accuracy*100:.2f}%)")
+        print(f"  Azar teórico (K/38):     {aleatorio:.4f} ({aleatorio*100:.2f}%)")
+        if accuracy > aleatorio:
+            print(f"  Diferencia:              +{(accuracy-aleatorio)*100:.2f} puntos porcentuales")
+        else:
+            print(f"  Diferencia:              {(accuracy-aleatorio)*100:.2f} puntos porcentuales (por debajo del azar)")
+        print(f"{'='*70}\n")
+        return {'accuracy': accuracy, 'total': total, 'hits': hits}
+
+    def vs_aleatorio(self, datos, top_k=25):
+        """Comparación directa: accuracy del modelo real vs accuracy con datos revueltos."""
+        print(f"\n{'='*70}")
+        print("  COMPARACIÓN: MODELO REAL vs DATOS ALEATORIOS")
+        print(f"{'='*70}")
+        print(f"  Dataset: {len(datos)} registros")
+        print(f"  Top-K: {top_k}")
+        print(f"{'─'*70}")
+
+        real_acc = self._get_accuracy_top_k(datos, top_k)
+
+        import random as _random
+        nums = datos['Num_Int'].values.copy()
+        shuffled = datos.copy()
+        shuffled['Num_Int'] = _random.sample(list(nums), len(nums))
+        shuffled_acc = self._get_accuracy_top_k(shuffled, top_k)
+
+        aleatorio = top_k / 38
+        print(f"\n  {'Métrica':<30} {'Modelo Real':<18} {'Datos Revueltos':<18} {'Azor Teórico':<15}")
+        print(f"  {'─'*78}")
+        print(f"  {'Accuracy':<30} {real_acc:<18.4f} {shuffled_acc:<18.4f} {aleatorio:<15.4f}")
+        print(f"  {'Porcentaje':<30} {real_acc*100:<18.2f}% {shuffled_acc*100:<18.2f}% {aleatorio*100:<15.2f}%")
+        print()
+        if real_acc > shuffled_acc:
+            print(f"  ✓ El modelo real es mejor que datos revueltos")
+            print(f"    Diferencia: +{(real_acc - shuffled_acc)*100:.2f} puntos")
+        else:
+            print(f"  ✗ El modelo real NO es mejor que datos revueltos")
+            print(f"    (el ruido es igual o mayor que la supuesta señal)")
+        print(f"{'='*70}\n")
+        return {'real': real_acc, 'revuelto': shuffled_acc, 'aleatorio': aleatorio}
+
+    def intervalos_confianza(self, datos, num_int, top_k=25):
+        """Muestra para un número dado el Top-K de transiciones con intervalo de confianza binomial al 95%."""
+        trans_prob, trans_total = self._transiciones_markov(datos)
+        if num_int not in trans_total:
+            print(f"\nEl número {num_int} no tiene transiciones registradas.")
+            return
+
+        total_trans = trans_total[num_int]
+        print(f"\n{'='*70}")
+        print(f"  INTERVALOS DE CONFIANZA (95%) — Desde número {num_int}")
+        print(f"  Animal: {self.num_int_a_animal.get(num_int, '?')}")
+        print(f"  Total transiciones desde este número: {total_trans}")
+        print(f"{'='*70}")
+        print(f"  {'#':<4} {'Siguiente':<12} {'Animal':<16} {'Prob':<9} {'IC 95%':<18} {'Muestras':<10}")
+        print(f"  {'─'*65}")
+
+        scores = [(n, trans_prob.get((num_int, n), 0)) for n in range(38)]
+        scores.sort(key=lambda x: -x[1])
+
+        for i, (n, prob) in enumerate(scores[:top_k], 1):
+            # Count actual occurrences
+            count = 0
+            for j in range(len(datos) - 1):
+                if (datos.iloc[j]['Num_Int'] == num_int and
+                    datos.iloc[j]['Fecha'] == datos.iloc[j+1]['Fecha'] and
+                    datos.iloc[j+1]['Num_Int'] == n):
+                    count += 1
+            # Wilson score interval (good for small n)
+            # Using normal approximation for simplicity
+            z = 1.96
+            p_hat = count / total_trans if total_trans > 0 else 0
+            se = np.sqrt(p_hat * (1 - p_hat) / total_trans) if total_trans > 0 else 0
+            ci_low = max(0, (p_hat - z * se)) * 100
+            ci_high = min(100, (p_hat + z * se)) * 100
+            a = self.num_int_a_animal.get(n, "?")
+            print(f"  {i:<4} {n:<12} {a:<16} {prob:<9.1f} [{ci_low:<7.1f}% - {ci_high:<5.1f}%]  {count:<3}/{total_trans}")
+
+        print(f"{'='*70}\n")
+        return scores[:top_k]
+
+    def mostrar_transiciones_reales(self, datos, entrada, top_k=25):
+        """Para un animal o número dado, muestra las transiciones reales más probables."""
+        # Resolve entrada to numero
+        try:
+            num_int = int(entrada)
+        except ValueError:
+            entrada_up = entrada.strip().upper()
+            from utils import ANIMAL_A_NUM_INT
+            num_int = ANIMAL_A_NUM_INT.get(entrada_up)
+            if num_int is None:
+                print(f"Animal '{entrada}' no reconocido.")
+                return
+
+        trans_prob, trans_total = self._transiciones_markov(datos)
+        if num_int not in trans_total:
+            print(f"\nNo hay suficientes transiciones desde {entrada}.")
+            return
+
+        total_trans = trans_total[num_int]
+        animal_origen = self.num_int_a_animal.get(num_int, "?")
+        print(f"\n{'='*70}")
+        print(f"  TRANSICIONES REALES — {entrada} ({animal_origen})")
+        print(f"  Total de transiciones: {total_trans}")
+        print(f"{'='*70}")
+        print(f"  {'#':<4} {'Siguiente':<12} {'Animal':<16} {'Probabilidad':<14} {'Frecuencia':<10}")
+        print(f"  {'─'*55}")
+
+        scores = [(n, trans_prob.get((num_int, n), 0)) for n in range(38)]
+        scores.sort(key=lambda x: -x[1])
+
+        for i, (n, prob) in enumerate(scores[:top_k], 1):
+            count = 0
+            for j in range(len(datos) - 1):
+                if (datos.iloc[j]['Num_Int'] == num_int and
+                    datos.iloc[j]['Fecha'] == datos.iloc[j+1]['Fecha'] and
+                    datos.iloc[j+1]['Num_Int'] == n):
+                    count += 1
+            a = self.num_int_a_animal.get(n, "?")
+            bar = '█' * int(prob / 2) + '░' * (10 - int(prob / 2))
+            print(f"  {i:<4} {n:<12} {a:<16} {prob:<6.1f}% {bar:<12} {count}/{total_trans}")
+
+        print(f"\n  (K = {top_k})")
+        print(f"{'='*70}\n")
+        return scores[:top_k]
 
     def prediccion_por_hora_especifica(self, datos):
         print("\nPrediccion Historica por Hora Especifica")

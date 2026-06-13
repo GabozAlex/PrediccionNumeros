@@ -117,9 +117,9 @@ def save_to_excel(df, filename="data/LottoActivoINT.xlsx"):
 
     if existing is not None and not existing.empty:
         existing['Fecha'] = pd.to_datetime(existing['Fecha']).dt.strftime("%Y-%m-%d")
-        existing['Hora'] = existing['Hora'].astype(str).str.strip()
+        existing['Hora'] = existing['Hora'].astype(str).str.strip().str.zfill(8)
         df['Fecha'] = pd.to_datetime(df['Fecha']).dt.strftime("%Y-%m-%d")
-        df['Hora'] = df['Hora'].astype(str).str.strip()
+        df['Hora'] = df['Hora'].astype(str).str.strip().str.zfill(8)
         combined = pd.concat([existing, df], ignore_index=True)
         combined = combined.drop_duplicates(subset=["Fecha", "Hora"], keep="last")
         combined = combined.sort_values(["Fecha", "Hora"]).reset_index(drop=True)

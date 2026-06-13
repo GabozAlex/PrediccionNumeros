@@ -79,7 +79,7 @@ def scrape_date(date_str, session=None, timeout=30):
             logger.warning(f"Could not parse number '{num_str}' on {date_str}")
             continue
 
-        hour_24 = HORA_MAP_12_TO_24.get(time_text) if 'HORA_MAP_12_TO_24' in globals() else HOUR_MAP_12_TO_24.get(time_text)
+        hour_24 = HORA_MAP_12_TO_24.get(time_text)
         if not hour_24:
             logger.warning(f"Unknown time format '{time_text}' on {date_str}")
             continue
@@ -128,9 +128,9 @@ def save_to_excel(df, filename="data/LottoActivoRD.xlsx"):
 
     if existing is not None and not existing.empty:
         existing['Fecha'] = pd.to_datetime(existing['Fecha']).dt.strftime("%Y-%m-%d")
-        existing['Hora'] = existing['Hora'].astype(str).str.strip()
+        existing['Hora'] = existing['Hora'].astype(str).str.strip().str.zfill(8)
         df['Fecha'] = pd.to_datetime(df['Fecha']).dt.strftime("%Y-%m-%d")
-        df['Hora'] = df['Hora'].astype(str).str.strip()
+        df['Hora'] = df['Hora'].astype(str).str.strip().str.zfill(8)
         combined = pd.concat([existing, df], ignore_index=True)
         combined = combined.drop_duplicates(subset=["Fecha", "Hora"], keep="last")
         combined = combined.sort_values(["Fecha", "Hora"]).reset_index(drop=True)
