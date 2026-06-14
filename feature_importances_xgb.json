@@ -1,0 +1,138 @@
+[
+  {
+    "feature": "num__Diferencia_Ciclica",
+    "importance": 0.06486524641513824
+  },
+  {
+    "feature": "num__Posicion_Previo",
+    "importance": 0.06068357452750206
+  },
+  {
+    "feature": "num__Dif_Ciclica_N",
+    "importance": 0.05326471105217934
+  },
+  {
+    "feature": "cat__Hora_Sorteo_12:00:00",
+    "importance": 0.04479135200381279
+  },
+  {
+    "feature": "cat__Hora_Sorteo_18:00:00",
+    "importance": 0.04273788630962372
+  },
+  {
+    "feature": "cat__Hora_Sorteo_14:00:00",
+    "importance": 0.042030662298202515
+  },
+  {
+    "feature": "cat__Hora_Sorteo_17:00:00",
+    "importance": 0.04124508425593376
+  },
+  {
+    "feature": "cat__Hora_Sorteo_15:00:00",
+    "importance": 0.04099802300333977
+  },
+  {
+    "feature": "cat__Hora_Sorteo_11:00:00",
+    "importance": 0.0401172898709774
+  },
+  {
+    "feature": "cat__Hora_Sorteo_13:00:00",
+    "importance": 0.03969812020659447
+  },
+  {
+    "feature": "cat__Hora_Sorteo_09:00:00",
+    "importance": 0.03823141008615494
+  },
+  {
+    "feature": "cat__Hora_Sorteo_16:00:00",
+    "importance": 0.038124822080135345
+  },
+  {
+    "feature": "num__Media_5_N",
+    "importance": 0.034522585570812225
+  },
+  {
+    "feature": "cat__Hora_Sorteo_08:00:00",
+    "importance": 0.03436799719929695
+  },
+  {
+    "feature": "cat__Hora_Sorteo_10:00:00",
+    "importance": 0.03413882851600647
+  },
+  {
+    "feature": "cat__Hora_Sorteo_19:00:00",
+    "importance": 0.03339676186442375
+  },
+  {
+    "feature": "num__Prob_Num_Hora",
+    "importance": 0.03096018172800541
+  },
+  {
+    "feature": "num__Std_5_N",
+    "importance": 0.030817896127700806
+  },
+  {
+    "feature": "num__Paridad_Previo",
+    "importance": 0.026798853650689125
+  },
+  {
+    "feature": "num__Lift_Dia",
+    "importance": 0.026712657883763313
+  },
+  {
+    "feature": "num__Prob_Trans_Markov",
+    "importance": 0.025405246764421463
+  },
+  {
+    "feature": "num__Trans_Total_Dia",
+    "importance": 0.024899275973439217
+  },
+  {
+    "feature": "num__Prob_Cooc",
+    "importance": 0.024879517033696175
+  },
+  {
+    "feature": "num__Color_Previo",
+    "importance": 0.023406973108649254
+  },
+  {
+    "feature": "num__Trans_Total_Hora",
+    "importance": 0.023106561973690987
+  },
+  {
+    "feature": "num__Prob_Trans_Markov_Hora",
+    "importance": 0.02159876376390457
+  },
+  {
+    "feature": "num__Prob_Trans_Markov_Dia",
+    "importance": 0.02071426995098591
+  },
+  {
+    "feature": "num__Gap_Num",
+    "importance": 0.019953936338424683
+  },
+  {
+    "feature": "num__Frecuencia_10",
+    "importance": 0.017531638965010643
+  },
+  {
+    "feature": "num__Repite_Num",
+    "importance": 0.0
+  },
+  {
+    "feature": "num__Prob_Hist_Hora",
+    "importance": 0.0
+  },
+  {
+    "feature": "num__Sorteos_Desde_Aparicion",
+    "importance": 0.0
+  },
+  {
+    "feature": "num__Racha_Num",
+    "importance": 0.0
+  },
+  {
+    "feature": "num__Mismo_Num_3",
+    "importance": 0.0
+  }
+]
