@@ -487,13 +487,6 @@ class ModernLottoUI:
         self.combo_dash_loteria.pack(side=tk.LEFT, padx=5)
         self.combo_dash_loteria.current(loterias.index(self.current_lottery))
 
-        ttk.Label(row, text="Modelo:", width=8).pack(side=tk.LEFT, padx=(10, 0))
-        self.combo_dash_modelo = ttk.Combobox(row, values=[
-            "Markov (GxHora)", "Random Forest", "XGBoost"
-        ], state="readonly", width=18)
-        self.combo_dash_modelo.pack(side=tk.LEFT, padx=5)
-        self.combo_dash_modelo.current(0)
-
         # Buttons row 1 - basic analysis
         btn_row = ttk.Frame(control_frame)
         btn_row.pack(fill=tk.X, pady=5)
@@ -504,42 +497,6 @@ class ModernLottoUI:
         ttk.Button(btn_row, text="Fallos por Hora", command=lambda: self._analisis_dash('fallos_hora')).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_row, text="Fallos por Mes", command=lambda: self._analisis_dash('fallos_mes')).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_row, text="Resultados del Día", command=self._ver_resultados_dia).pack(side=tk.LEFT, padx=2)
-
-        # Buttons row 2 - advanced statistical analysis
-        btn_row2 = ttk.Frame(control_frame)
-        btn_row2.pack(fill=tk.X, pady=2)
-        btn1 = ttk.Button(btn_row2, text="Test de Significancia",
-                          command=lambda: self._analisis_dash('test_significancia'))
-        btn1.pack(side=tk.LEFT, padx=2)
-        self._add_tooltip(btn1, "Permutación: ¿el modelo Markov es mejor que el azar?\n"
-                                "Baraja los números 200 veces y compara accuracy real vs aleatorio.\n"
-                                "Si p-valor < 0.05, hay señal real.")
-
-        btn2 = ttk.Button(btn_row2, text="Walk-Forward",
-                          command=lambda: self._analisis_dash('walk_forward'))
-        btn2.pack(side=tk.LEFT, padx=2)
-        self._add_tooltip(btn2, "Validación walk-forward: entrena con 70%,\n"
-                                "predice el siguiente sorteo, avanza 1 y repite.\n"
-                                "Más riguroso que train/test split tradicional.")
-
-        btn3 = ttk.Button(btn_row2, text="vs Aleatorio",
-                          command=lambda: self._analisis_dash('vs_aleatorio'))
-        btn3.pack(side=tk.LEFT, padx=2)
-        self._add_tooltip(btn3, "Comparación directa: accuracy real vs accuracy\n"
-                                "con números revueltos (misma distribución,\n"
-                                "orden aleatorio).")
-
-        btn4 = ttk.Button(btn_row2, text="Transiciones Reales",
-                          command=self._mostrar_transiciones_dash)
-        btn4.pack(side=tk.LEFT, padx=2)
-        self._add_tooltip(btn4, "Para un animal o número, muestra los siguientes\n"
-                                "números más probables con su % real y barra visual.")
-
-        btn5 = ttk.Button(btn_row2, text="Intervalos de Confianza",
-                          command=self._mostrar_intervalos_dash)
-        btn5.pack(side=tk.LEFT, padx=2)
-        self._add_tooltip(btn5, "Para cada número, muestra su probabilidad de\n"
-                                "transición con intervalo de confianza al 95%.")
 
         # Area de texto para resultados de análisis
         analisis_frame = ttk.LabelFrame(main_frame, text="Resultados del Análisis", padding=5)
@@ -570,11 +527,7 @@ class ModernLottoUI:
             old_stdout = sys.stdout
             sys.stdout = RedirectText(self.text_dashboard)
             try:
-                modelo_sel = self.combo_dash_modelo.get()
-                print(f"=== {loteria_name} — Modelo: {modelo_sel} ===\n")
-                if modelo_sel != "Markov (GxHora)":
-                    if tipo not in ('test_significancia', 'walk_forward', 'vs_aleatorio'):
-                        print(f"  (Aviso: análisis usa método Markov, no {modelo_sel})\n")
+                print(f"=== {loteria_name} ===\n")
                 if tipo == 'aciertos_dia':
                     analizador.analizar_aciertos_por_dia_semana(datos, top_k=25)
                 elif tipo == 'aciertos_hora':
@@ -587,12 +540,6 @@ class ModernLottoUI:
                     analizador.analizar_fallos_por_hora(datos, top_k=25)
                 elif tipo == 'fallos_mes':
                     self._analisis_por_mes(datos, 'fallos')
-                elif tipo == 'test_significancia':
-                    analizador.test_significancia_markov(datos, permutaciones=50, top_k=25)
-                elif tipo == 'walk_forward':
-                    analizador.walk_forward_validation(datos, top_k=25)
-                elif tipo == 'vs_aleatorio':
-                    analizador.vs_aleatorio(datos, top_k=25)
             finally:
                 sys.stdout = old_stdout
         except Exception as e:
@@ -901,122 +848,6 @@ class ModernLottoUI:
         ttk.Button(btn_frame, text="Guardar", command=guardar, style='ML.TButton').pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Cerrar", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
 
-    # ── Tooltip y diálogos de análisis ─────────────────────────────────
-
-    def _add_tooltip(self, widget, texto):
-        """Tooltip emergente al pasar el mouse sobre un widget."""
-        tw = None
-        def show(event):
-            nonlocal tw
-            if tw:
-                return
-            tw = tk.Toplevel(widget)
-            tw.wm_overrideredirect(True)
-            tw.wm_geometry(f"+{event.x_root+15}+{event.y_root+10}")
-            lbl = tk.Label(tw, text=texto, justify=tk.LEFT,
-                           background="#ffffcc", relief="solid", borderwidth=1,
-                           font=("Consolas", 8), padx=4, pady=2)
-            lbl.pack()
-        def hide(event):
-            nonlocal tw
-            if tw:
-                tw.destroy()
-                tw = None
-        widget.bind("<Enter>", show, add='+')
-        widget.bind("<Leave>", hide, add='+')
-
-    def _mostrar_transiciones_dash(self):
-        """Diálogo: pide un animal/número y muestra sus transiciones reales."""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Transiciones Reales")
-        dialog.geometry("500x400")
-        main = ttk.Frame(dialog, padding=15)
-        main.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(main, text="Transiciones Reales", font=('', 12, 'bold')).pack(pady=(0, 10))
-        ttk.Label(main, text="Ingresa un número (0-37) o nombre del animal:").pack(anchor=tk.W)
-        entry = ttk.Entry(main, width=30)
-        entry.pack(fill=tk.X, pady=5)
-        entry.focus()
-        text = scrolledtext.ScrolledText(main, wrap=tk.WORD, font=('Consolas', 9))
-        text.pack(fill=tk.BOTH, expand=True, pady=5)
-        def ejecutar():
-            entrada = entry.get().strip()
-            if not entrada:
-                return
-            text.delete(1.0, tk.END)
-            loteria_name = self.combo_dash_loteria.get()
-            analizador = self._get_analizador()
-            if analizador is None:
-                text.insert(tk.END, "Error: no se pudo obtener analizador.")
-                return
-            excel = self._get_excel_path(loteria_name)
-            if not excel or not os.path.exists(excel):
-                text.insert(tk.END, f"Archivo no encontrado: {excel}")
-                return
-            from utils import load_and_prepare_data
-            datos = load_and_prepare_data(excel, analizador)
-            if datos is None or len(datos) < 2:
-                text.insert(tk.END, "Datos insuficientes.")
-                return
-            old_stdout = sys.stdout
-            sys.stdout = RedirectText(text)
-            try:
-                analizador.mostrar_transiciones_reales(datos, entrada, top_k=25)
-            finally:
-                sys.stdout = old_stdout
-        btn_frame = ttk.Frame(main)
-        btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text="Ejecutar", command=ejecutar).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Cerrar", command=dialog.destroy).pack(side=tk.LEFT, padx=2)
-
-    def _mostrar_intervalos_dash(self):
-        """Diálogo: pide un número y muestra intervalos de confianza."""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Intervalos de Confianza")
-        dialog.geometry("600x500")
-        main = ttk.Frame(dialog, padding=15)
-        main.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(main, text="Intervalos de Confianza (95%)", font=('', 12, 'bold')).pack(pady=(0, 10))
-        ttk.Label(main, text="Ingresa un número (0-37):").pack(anchor=tk.W)
-        entry = ttk.Entry(main, width=10)
-        entry.pack(anchor=tk.W, pady=5)
-        entry.focus()
-        text = scrolledtext.ScrolledText(main, wrap=tk.WORD, font=('Consolas', 9))
-        text.pack(fill=tk.BOTH, expand=True, pady=5)
-        def ejecutar():
-            entrada = entry.get().strip()
-            if not entrada.isdigit():
-                text.insert(tk.END, "Ingresa un número válido (0-37).")
-                return
-            num_int = int(entrada)
-            if num_int < 0 or num_int > 37:
-                text.insert(tk.END, "Número fuera de rango (0-37).")
-                return
-            text.delete(1.0, tk.END)
-            loteria_name = self.combo_dash_loteria.get()
-            analizador = self._get_analizador()
-            if analizador is None:
-                text.insert(tk.END, "Error: no se pudo obtener analizador.")
-                return
-            excel = self._get_excel_path(loteria_name)
-            if not excel or not os.path.exists(excel):
-                text.insert(tk.END, f"Archivo no encontrado: {excel}")
-                return
-            from utils import load_and_prepare_data
-            datos = load_and_prepare_data(excel, analizador)
-            if datos is None or len(datos) < 2:
-                text.insert(tk.END, "Datos insuficientes.")
-                return
-            old_stdout = sys.stdout
-            sys.stdout = RedirectText(text)
-            try:
-                analizador.intervalos_confianza(datos, num_int, top_k=25)
-            finally:
-                sys.stdout = old_stdout
-        btn_frame = ttk.Frame(main)
-        btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text="Ejecutar", command=ejecutar).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="Cerrar", command=dialog.destroy).pack(side=tk.LEFT, padx=2)
 
     # ── Helper methods ──────────────────────────────────────────────────
 
