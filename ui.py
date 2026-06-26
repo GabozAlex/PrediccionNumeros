@@ -320,21 +320,37 @@ class ModernLottoUI:
         self.tree_resultados.delete(*self.tree_resultados.get_children())
 
     def _mostrar_prediccion_ml_en_tree(self, prediccion, analizador, nombre_modelo):
-        """Agrega resultados de un modelo ML (RF/XGB/LGB) al tree_resultados.
+        """Agrega resultados de un modelo ML (RF/XGB/LGB) al tree_resultados
+        y guarda last_prediccion_data para 'Ver Top por Hora'.
         prediccion: dict hora -> [lista de ints 0-37 en orden de probabilidad]
         """
         self.tree_resultados.delete(*self.tree_resultados.get_children())
         if not prediccion:
             return
         from collections import defaultdict
+        from datetime import datetime
         scores = defaultdict(float)
         freq = defaultdict(int)
         total_horas = len(prediccion)
-        for hora, nums in prediccion.items():
+        por_hora = {}
+        for hora_24, nums in prediccion.items():
+            try:
+                dt = datetime.strptime(hora_24, "%H:%M:%S")
+                hora_12 = dt.strftime("%I:%M %p")
+            except Exception:
+                hora_12 = hora_24
+            lista = []
             for pos, n in enumerate(nums[:25]):
                 peso = 25 - pos
                 scores[int(n)] += peso
                 freq[int(n)] += 1
+                lista.append({
+                    'num': int(n),
+                    'animal': analizador.num_int_a_animal.get(int(n), "?"),
+                    'score': round(peso / 25 * 100, 1)
+                })
+            por_hora[hora_12] = lista
+        self.last_prediccion_data = {'top': [], 'por_hora': por_hora}
         top = sorted(scores.items(), key=lambda x: (-x[1], -freq[x[0]]))[:25]
         for rank, (num, score) in enumerate(top, 1):
             animal = analizador.num_int_a_animal.get(num, "?")
@@ -477,7 +493,7 @@ class ModernLottoUI:
     def _ver_top_por_hora_dialog(self):
         data = getattr(self, 'last_prediccion_data', None)
         if not data:
-            messagebox.showinfo('Info', 'Primero genere una predicción (Presione "Predecir" con Markov x Hora).')
+            messagebox.showinfo('Info', 'Primero genere una predicción (presione "Predecir").')
             return
         dialog = tk.Toplevel(self.root)
         dialog.title('Top por Hora')
