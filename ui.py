@@ -319,6 +319,34 @@ class ModernLottoUI:
         self.entry_animal.delete(0, tk.END)
         self.tree_resultados.delete(*self.tree_resultados.get_children())
 
+    def _mostrar_prediccion_ml_en_tree(self, prediccion, analizador, nombre_modelo):
+        """Agrega resultados de un modelo ML (RF/XGB/LGB) al tree_resultados.
+        prediccion: dict hora -> [lista de ints 0-37 en orden de probabilidad]
+        """
+        self.tree_resultados.delete(*self.tree_resultados.get_children())
+        if not prediccion:
+            return
+        from collections import defaultdict
+        scores = defaultdict(float)
+        freq = defaultdict(int)
+        total_horas = len(prediccion)
+        for hora, nums in prediccion.items():
+            for pos, n in enumerate(nums[:25]):
+                peso = 25 - pos
+                scores[int(n)] += peso
+                freq[int(n)] += 1
+        top = sorted(scores.items(), key=lambda x: (-x[1], -freq[x[0]]))[:25]
+        for rank, (num, score) in enumerate(top, 1):
+            animal = analizador.num_int_a_animal.get(num, "?")
+            pct_hora = freq[num] / total_horas * 100
+            self.tree_resultados.insert('', 'end', values=(
+                rank, num, animal, round(score, 1), '--', f'{pct_hora:.0f}%'
+            ))
+        print(f"Top 25 predicciones {nombre_modelo} (agregadas de {total_horas} horas):")
+        for rank, (num, score) in enumerate(top, 1):
+            animal = analizador.num_int_a_animal.get(num, "?")
+            print(f"  {rank:2d}. {num:2d} ({animal}) - Score: {score:.1f}")
+
     def _predecir_principal(self):
         self.tree_resultados.delete(*self.tree_resultados.get_children())
         metodo = self.combo_metodo.get()
@@ -416,13 +444,7 @@ class ModernLottoUI:
                     print(f"Modelo RF entrenado: {fec} ({muestras} muestras)")
                     print("-" * 50)
                     prediccion = analizador.predecir_top_k_por_hora(modelo, le_y, datos, k=25)
-                    if prediccion:
-                        print("Top 25 predicciones RF:")
-                        for hora, nums in prediccion.items():
-                            print(f"\n  {hora}:")
-                            for i, n in enumerate(nums[:25], 1):
-                                a = analizador.num_int_a_animal.get(int(n), "?")
-                                print(f"    {i:2d}. {int(n):2d} ({a})")
+                    self._mostrar_prediccion_ml_en_tree(prediccion, analizador, "Random Forest")
 
             elif metodo == "XGBoost":
                 modelo, le_y, metricas = analizador.cargar_ultimo_modelo('xgboost')
@@ -434,13 +456,7 @@ class ModernLottoUI:
                     print(f"Modelo XGB entrenado: {fec} ({muestras} muestras)")
                     print("-" * 50)
                     prediccion = analizador.predecir_top_k_por_hora(modelo, le_y, datos, k=25)
-                    if prediccion:
-                        print("Top 25 predicciones XGBoost:")
-                        for hora, nums in prediccion.items():
-                            print(f"\n  {hora}:")
-                            for i, n in enumerate(nums[:25], 1):
-                                a = analizador.num_int_a_animal.get(int(n), "?")
-                                print(f"    {i:2d}. {int(n):2d} ({a})")
+                    self._mostrar_prediccion_ml_en_tree(prediccion, analizador, "XGBoost")
 
             elif metodo == "LightGBM":
                 modelo, le_y, metricas = analizador.cargar_ultimo_modelo('lightgbm')
@@ -452,13 +468,7 @@ class ModernLottoUI:
                     print(f"Modelo LGB entrenado: {fec} ({muestras} muestras)")
                     print("-" * 50)
                     prediccion = analizador.predecir_top_k_por_hora(modelo, le_y, datos, k=25)
-                    if prediccion:
-                        print("Top 25 predicciones LightGBM:")
-                        for hora, nums in prediccion.items():
-                            print(f"\n  {hora}:")
-                            for i, n in enumerate(nums[:25], 1):
-                                a = analizador.num_int_a_animal.get(int(n), "?")
-                                print(f"    {i:2d}. {int(n):2d} ({a})")
+                    self._mostrar_prediccion_ml_en_tree(prediccion, analizador, "LightGBM")
 
         except Exception as e:
             print(f"ERROR: {e}")
