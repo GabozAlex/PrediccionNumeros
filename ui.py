@@ -77,6 +77,8 @@ class ModernLottoUI:
         self.le_y_rf = {}
         self.modelos_xgb = {}
         self.le_y_xgb = {}
+        self.modelos_lgb = {}
+        self.le_y_lgb = {}
 
         self._crear_interfaz()
         self._configurar_estilo()
@@ -147,7 +149,7 @@ class ModernLottoUI:
             "Markov", "Markov x Hora", "Markov Orden 2",
             "Frecuencia x Hora",
             "Markov x Dia", "Markov x Hora + Frecuencia x Hora",
-            "Random Forest", "XGBoost"
+            "Random Forest", "XGBoost", "LightGBM"
         ], state="readonly", width=37)
         self.combo_metodo.pack(side=tk.LEFT, padx=5)
         self.combo_metodo.current(1)
@@ -166,6 +168,9 @@ class ModernLottoUI:
         self.btn_entrenar_xgb = ttk.Button(row1, text="Entrenar XGB",
                                            command=lambda: self._entrenar_modelo_con_progreso('xgb'))
         self.btn_entrenar_xgb.pack(side=tk.LEFT, padx=2)
+        self.btn_entrenar_lgb = ttk.Button(row1, text="Entrenar LGB",
+                                           command=lambda: self._entrenar_modelo_con_progreso('lgb'))
+        self.btn_entrenar_lgb.pack(side=tk.LEFT, padx=2)
 
         # Info labels for last training date
         info_row = ttk.Frame(pred_frame)
@@ -174,6 +179,8 @@ class ModernLottoUI:
         self.info_rf_label.pack(side=tk.LEFT, padx=(12, 30))
         self.info_xgb_label = ttk.Label(info_row, text="XGB: --", font=('', 8), foreground="gray")
         self.info_xgb_label.pack(side=tk.LEFT, padx=0)
+        self.info_lgb_label = ttk.Label(info_row, text="LGB: --", font=('', 8), foreground="gray")
+        self.info_lgb_label.pack(side=tk.LEFT, padx=0)
 
         # Animal/Num input
         row2 = ttk.Frame(pred_frame)
@@ -222,7 +229,7 @@ class ModernLottoUI:
         """Lee la fecha del último modelo entrenado y actualiza las etiquetas."""
         try:
             analizador = self._get_analizador()
-            for tipo, label in [('random_forest', self.info_rf_label), ('xgboost', self.info_xgb_label)]:
+            for tipo, label in [('random_forest', self.info_rf_label), ('xgboost', self.info_xgb_label), ('lightgbm', self.info_lgb_label)]:
                 try:
                     modelo_dir = None
                     search_dirs = [analizador.config.get('modelos_dir', 'modelos'), 'modelos']
@@ -279,6 +286,8 @@ class ModernLottoUI:
                 self._log_progress(txt, "Iniciando optimización de hiperparámetros (esto puede tomar varios minutos)...")
                 if tipo == 'rf':
                     resultado = analizador.random_forest_optimizado(datos)
+                elif tipo == 'lgb':
+                    resultado = analizador.lightgbm_optimizado(datos)
                 else:
                     resultado = analizador.xgboost_optimizado(datos)
                 if resultado is not None:
@@ -427,6 +436,24 @@ class ModernLottoUI:
                     prediccion = analizador.predecir_top_k_por_hora(modelo, le_y, datos, k=25)
                     if prediccion:
                         print("Top 25 predicciones XGBoost:")
+                        for hora, nums in prediccion.items():
+                            print(f"\n  {hora}:")
+                            for i, n in enumerate(nums[:25], 1):
+                                a = analizador.num_int_a_animal.get(int(n), "?")
+                                print(f"    {i:2d}. {int(n):2d} ({a})")
+
+            elif metodo == "LightGBM":
+                modelo, le_y, metricas = analizador.cargar_ultimo_modelo('lightgbm')
+                if modelo is None:
+                    print("No hay modelo LightGBM guardado. Use 'Entrenar LGB' primero.")
+                else:
+                    fec = metricas.get('fecha_entrenamiento', 'desconocida')
+                    muestras = metricas.get('num_muestras', 'N/A')
+                    print(f"Modelo LGB entrenado: {fec} ({muestras} muestras)")
+                    print("-" * 50)
+                    prediccion = analizador.predecir_top_k_por_hora(modelo, le_y, datos, k=25)
+                    if prediccion:
+                        print("Top 25 predicciones LightGBM:")
                         for hora, nums in prediccion.items():
                             print(f"\n  {hora}:")
                             for i, n in enumerate(nums[:25], 1):

@@ -82,6 +82,8 @@ def train_lottery(lot, tipo):
         analizador.random_forest_optimizado(datos)
     elif tipo == 'xgb':
         analizador.xgboost_optimizado(datos)
+    elif tipo == 'lgb':
+        analizador.lightgbm_optimizado(datos)
 
 
 def main():
@@ -91,7 +93,8 @@ def main():
     print()
     print("1. Entrenar Random Forest en todas")
     print("2. Entrenar XGBoost en todas")
-    print("3. Entrenar ambos en todas")
+    print("3. Entrenar LightGBM en todas")
+    print("4. Entrenar todos (RF+XGB+LGB) en todas")
 
     option = input("Selecciona opcion: ").strip()
 
@@ -101,14 +104,21 @@ def main():
     elif option == '2':
         tipos = ['xgb']
     elif option == '3':
-        tipos = ['rf', 'xgb']
+        tipos = ['lgb']
+    elif option == '4':
+        tipos = ['rf', 'xgb', 'lgb']
     else:
         print("Opcion no valida")
         return
 
     for tipo in tipos:
         for lot in LOTTERIES:
-            train_lottery(lot, tipo)
+            try:
+                train_lottery(lot, tipo)
+            except Exception as e:
+                print(f"  ERROR entrenando {lot['name']} ({tipo}): {e}")
+                import traceback
+                traceback.print_exc()
             import time
             time.sleep(1)
 
