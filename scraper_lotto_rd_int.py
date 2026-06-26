@@ -17,21 +17,6 @@ HEADERS = {
 
 logger = setup_logging('lotto_rd_int_scraper')
 
-HOUR_MAP_12_TO_24 = {
-    "08:30 AM": "08:30:00",
-    "09:30 AM": "09:30:00",
-    "10:30 AM": "10:30:00",
-    "11:30 AM": "11:30:00",
-    "12:30 PM": "12:30:00",
-    "01:30 PM": "13:30:00",
-    "02:30 PM": "14:30:00",
-    "03:30 PM": "15:30:00",
-    "04:30 PM": "16:30:00",
-    "05:30 PM": "17:30:00",
-    "06:30 PM": "18:30:00",
-    "07:30 PM": "19:30:00",
-}
-
 H5_PREFIXES = ["Lotto Activo Rd Int ", "Lotto Activo Int ", "Lotto Activo Int ( Lotto Internacional ) ", "Lotto Activo Int ("]
 
 def scrape_date(date_str, session=None, timeout=30):

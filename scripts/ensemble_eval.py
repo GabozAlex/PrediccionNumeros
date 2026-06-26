@@ -129,7 +129,9 @@ if __name__ == '__main__':
         results[w] = {'top5': r5, 'top25': r25}
         print(f'w={w}: Top-5 {r5[2]:.2f}% ({r5[0]}/{r5[1]}), Top-25 {r25[2]:.2f}% ({r25[0]}/{r25[1]})')
 
-    with open('ensemble_results.json', 'w') as f:
+    import os
+    os.makedirs('results', exist_ok=True)
+    with open('results/ensemble_results.json', 'w') as f:
         json.dump({str(k): {'top5': v['top5'], 'top25': v['top25']} for k, v in results.items()}, f, indent=2)
 
-    print('Done. Results saved to ensemble_results.json')
+    print('Done. Results saved to results/ensemble_results.json')

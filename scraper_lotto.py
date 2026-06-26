@@ -16,21 +16,6 @@ HEADERS = {
 
 logger = setup_logging('lotto_scraper')
 
-HOUR_MAP_12_TO_24 = {
-    "08:00 AM": "08:00:00",
-    "09:00 AM": "09:00:00",
-    "10:00 AM": "10:00:00",
-    "11:00 AM": "11:00:00",
-    "12:00 PM": "12:00:00",
-    "01:00 PM": "13:00:00",
-    "02:00 PM": "14:00:00",
-    "03:00 PM": "15:00:00",
-    "04:00 PM": "16:00:00",
-    "05:00 PM": "17:00:00",
-    "06:00 PM": "18:00:00",
-    "07:00 PM": "19:00:00",
-}
-
 def scrape_date(date_str, session=None, timeout: int = 30):
     records = []
     session = session or get_requests_session()

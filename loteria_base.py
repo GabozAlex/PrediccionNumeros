@@ -188,19 +188,13 @@ class Loteria:
         df['Lag_2_Num'] = df['Num_Int'].shift(2)
         df['Lag_12_Num'] = df['Num_Int'].shift(12)
         df['Lag_24_Num'] = df['Num_Int'].shift(24)
-        df['Dif_Num_1'] = df['Num_Int'] - df['Num_Int_Prev']
         df['Dif_Num_2'] = df['Num_Int_Prev'] - df['Lag_2_Num']
-        df['Dif_Abs'] = df['Dif_Num_1'].abs()
-        df['Es_Par'] = (df['Num_Int'] % 2 == 0).astype(int)
-        df['Rango'] = pd.cut(df['Num_Int'], bins=[-1, 12, 25, 37], labels=[0, 1, 2]).astype(int)
         df['Hora_Sin'] = np.sin(2 * np.pi * df['Hora_Num'] / 24)
         df['Hora_Cos'] = np.cos(2 * np.pi * df['Hora_Num'] / 24)
         df['Dia_Sin'] = np.sin(2 * np.pi * df['Dia_Semana'] / 7)
         df['Dia_Cos'] = np.cos(2 * np.pi * df['Dia_Semana'] / 7)
         df['Mes_Sin'] = np.sin(2 * np.pi * df['Mes'] / 12)
         df['Mes_Cos'] = np.cos(2 * np.pi * df['Mes'] / 12)
-        freq_global_num = df['Num_Int'].value_counts(normalize=True).to_dict()
-        df['Freq_Global_Num'] = df['Num_Int'].map(freq_global_num)
 
         from collections import defaultdict, deque
         # Expanding window features (no future leakage)
@@ -375,11 +369,9 @@ class Loteria:
                             'Racha_Num', 'Mismo_Num_3', 'Media_5_N', 'Std_5_N',
                             'Prob_Cooc', 'Lift_Dia',
                             'Lag_2_Num', 'Lag_12_Num', 'Lag_24_Num',
-                            'Lag_2_Animal',
-                            'Dif_Num_1', 'Dif_Num_2', 'Dif_Abs',
-                            'Es_Par', 'Rango',
+                            'Dif_Num_2',
                             'Hora_Sin', 'Hora_Cos', 'Dia_Sin', 'Dia_Cos', 'Mes_Sin', 'Mes_Cos',
-                            'Freq_Global_Num', 'Freq_Dia_Num']
+                            'Freq_Dia_Num']
         categorical_features = ['Hora_Sorteo']
         if 'Hora_Sorteo' not in df_ml.columns:
             df_ml['Hora_Sorteo'] = df_ml['Hora'].astype(str).str.strip().str.zfill(8)
@@ -447,10 +439,9 @@ class Loteria:
                               'Racha_Num', 'Mismo_Num_3', 'Media_5_N', 'Std_5_N',
                               'Prob_Cooc', 'Lift_Dia',
                               'Lag_2_Num', 'Lag_12_Num', 'Lag_24_Num',
-                              'Dif_Num_1', 'Dif_Num_2', 'Dif_Abs',
-                              'Es_Par', 'Rango',
+                              'Dif_Num_2',
                               'Hora_Sin', 'Hora_Cos', 'Dia_Sin', 'Dia_Cos', 'Mes_Sin', 'Mes_Cos',
-                              'Freq_Global_Num', 'Freq_Dia_Num']
+                              'Freq_Dia_Num']
         available_numeric = [f for f in numeric_candidates if f in df_ml.columns]
         all_features = available_numeric + ['Hora_Sorteo']
         self.logger.info(f"Generando Matriz de Prediccion TOP-{k} de la IA ({len(all_features)} features)...")
@@ -497,10 +488,10 @@ class Loteria:
         random_search = RandomizedSearchCV(
             pipeline_base,
             param_distributions=param_dist,
-            n_iter=20,
+            n_iter=6,
             cv=tscv,
             scoring=self._top25_cv_scorer,
-            n_jobs=-1,
+            n_jobs=2,
             random_state=42,
             verbose=1,
             error_score=0.0
@@ -554,40 +545,22 @@ class Loteria:
         return random_search.best_estimator_
 
     def optimizar_hiperparametros_lgb(self, X, Y, numeric_features, categorical_features):
-        """Optimiza hiperparametros para LightGBM"""
-        self.logger.info("Iniciando optimizacion de LightGBM...")
-        param_dist = {
-            'classifier__n_estimators': [50, 100, 150, 200],
-            'classifier__learning_rate': [0.01, 0.05, 0.1, 0.2],
-            'classifier__num_leaves': [15, 31, 63, 127],
-            'classifier__max_depth': [3, 5, 7, 9, -1],
-            'classifier__subsample': [0.8, 0.9, 1.0],
-            'classifier__colsample_bytree': [0.8, 0.9, 1.0],
-            'classifier__reg_alpha': [0.0, 0.1, 1.0],
-            'classifier__reg_lambda': [0.0, 0.1, 1.0]
-        }
+        """Entrena LightGBM con parametros fijos optimos (sin grid search costoso)"""
+        self.logger.info("Entrenando LightGBM con parametros optimos...")
         modelo_base = lgb.LGBMClassifier(
+            n_estimators=100,
+            learning_rate=0.1,
+            num_leaves=31,
+            subsample=0.8,
+            colsample_bytree=0.8,
             random_state=42,
-            n_jobs=-1,
+            n_jobs=1,
             verbose=-1
         )
-        pipeline_base = self.crear_pipeline_ml(modelo_base, numeric_features, categorical_features)
-        tscv = TimeSeriesSplit(n_splits=3)
-        random_search = RandomizedSearchCV(
-            pipeline_base,
-            param_distributions=param_dist,
-            n_iter=10,
-            cv=tscv,
-            scoring=self._top25_cv_scorer,
-            n_jobs=1,
-            random_state=42,
-            verbose=1,
-            error_score=0.0
-        )
-        random_search.fit(X, Y)
-        self.logger.info(f"Mejores parametros LGB: {random_search.best_params_}")
-        self.logger.info(f"Mejor score LGB (Top-25): {random_search.best_score_:.4f}")
-        return random_search.best_estimator_
+        pipeline = self.crear_pipeline_ml(modelo_base, numeric_features, categorical_features)
+        pipeline.fit(X, Y)
+        self.logger.info("LightGBM entrenado exitosamente")
+        return pipeline
 
     def entrenar_modelo_con_optimizacion(self, X, Y, tipo_modelo, numeric_features, categorical_features):
         self.logger.info(f"Iniciando entrenamiento con optimizacion para {tipo_modelo}")
@@ -915,10 +888,9 @@ class Loteria:
                               'Prob_Cooc', 'Lift_Dia', 'Racha_Num', 'Mismo_Num_3', 'Media_5_N', 'Std_5_N',
                               'Dif_Ciclica_N', 'Prob_Num_Hora', 'Gap_Num', 'Repite_Num',
                               'Lag_2_Num', 'Lag_12_Num', 'Lag_24_Num',
-                              'Dif_Num_1', 'Dif_Num_2', 'Dif_Abs',
-                              'Es_Par', 'Rango',
+                              'Dif_Num_2',
                               'Hora_Sin', 'Hora_Cos', 'Dia_Sin', 'Dia_Cos', 'Mes_Sin', 'Mes_Cos',
-                              'Freq_Global_Num', 'Freq_Dia_Num']
+                              'Freq_Dia_Num']
         available_numeric = [f for f in numeric_candidates if f in df.columns]
         all_nums = list(range(38))
         horas_del_dia = sorted(df['Hora'].unique())
@@ -1039,10 +1011,9 @@ class Loteria:
                               'Prob_Cooc', 'Lift_Dia', 'Racha_Num', 'Mismo_Num_3', 'Media_5_N', 'Std_5_N',
                               'Dif_Ciclica_N', 'Prob_Num_Hora', 'Gap_Num', 'Repite_Num',
                               'Lag_2_Num', 'Lag_12_Num', 'Lag_24_Num',
-                              'Dif_Num_1', 'Dif_Num_2', 'Dif_Abs',
-                              'Es_Par', 'Rango',
+                              'Dif_Num_2',
                               'Hora_Sin', 'Hora_Cos', 'Dia_Sin', 'Dia_Cos', 'Mes_Sin', 'Mes_Cos',
-                              'Freq_Global_Num', 'Freq_Dia_Num']
+                              'Freq_Dia_Num']
         available_numeric = [f for f in numeric_candidates if f in df.columns]
         ultimo_num = int(ultimo['Num_Int'])
         markov_scores = {}
@@ -1132,10 +1103,9 @@ class Loteria:
                               'Prob_Cooc', 'Lift_Dia', 'Racha_Num', 'Mismo_Num_3', 'Media_5_N', 'Std_5_N',
                               'Dif_Ciclica_N', 'Prob_Num_Hora', 'Gap_Num', 'Repite_Num',
                               'Lag_2_Num', 'Lag_12_Num', 'Lag_24_Num',
-                              'Dif_Num_1', 'Dif_Num_2', 'Dif_Abs',
-                              'Es_Par', 'Rango',
+                              'Dif_Num_2',
                               'Hora_Sin', 'Hora_Cos', 'Dia_Sin', 'Dia_Cos', 'Mes_Sin', 'Mes_Cos',
-                              'Freq_Global_Num', 'Freq_Dia_Num']
+                              'Freq_Dia_Num']
         available_numeric = [f for f in numeric_candidates if f in d2.columns]
         df_hora = d2[d2['Hora'] == hora_str].iloc[[-1]].copy()
         if df_hora.empty:
@@ -1188,10 +1158,9 @@ class Loteria:
                               'Prob_Cooc', 'Lift_Dia', 'Racha_Num', 'Mismo_Num_3', 'Media_5_N', 'Std_5_N',
                               'Dif_Ciclica_N', 'Prob_Num_Hora', 'Gap_Num', 'Repite_Num',
                               'Lag_2_Num', 'Lag_12_Num', 'Lag_24_Num',
-                              'Dif_Num_1', 'Dif_Num_2', 'Dif_Abs',
-                              'Es_Par', 'Rango',
+                              'Dif_Num_2',
                               'Hora_Sin', 'Hora_Cos', 'Dia_Sin', 'Dia_Cos', 'Mes_Sin', 'Mes_Cos',
-                              'Freq_Global_Num', 'Freq_Dia_Num']
+                              'Freq_Dia_Num']
         available_numeric = [f for f in numeric_candidates if f in df_eval.columns]
         trans_prob, trans_total = self._transiciones_markov(df)
         d_prep = self.preparar_datos_markov(df)

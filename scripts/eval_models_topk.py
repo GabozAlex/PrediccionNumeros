@@ -276,9 +276,11 @@ def main():
             t10 = stats[m]['by_hour'][h]['top10']
             out['by_hour'][h][m] = {'n': n, 'top5': f"{t5}/{n} = {t5/n*100:.2f}%" if n>0 else None, 'top10': f"{t10}/{n} = {t10/n*100:.2f}%" if n>0 else None}
 
-    with open('results_topk.json','w') as f:
+    import os
+    os.makedirs('results', exist_ok=True)
+    with open('results/results_topk.json','w') as f:
         json.dump(out,f,indent=2)
-    print('Resultados guardados en results_topk.json')
+    print('Resultados guardados en results/results_topk.json')
     print(json.dumps(out, indent=2))
 
 

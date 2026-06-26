@@ -9,6 +9,7 @@ lotto.db
 # Carpetas generadas
 logs/
 modelos/
+results/
 __pycache__/
 *.pyc
 
